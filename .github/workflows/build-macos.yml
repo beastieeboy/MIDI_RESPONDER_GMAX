@@ -1,4 +1,4 @@
-name: Build macOS (VST3 + AU)
+name: Build macOS (VST3)
 
 on:
   push:
@@ -16,6 +16,8 @@ jobs:
         run: |
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -o sk_core_tests tests/CoreTests.cpp Source/Core/*.cpp -lrt
           ./sk_core_tests
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -o sk_vocal_tests tests/VocalTests.cpp Source/Core/*.cpp -lrt
+          ./sk_vocal_tests
 
   macos:
     runs-on: macos-14   # Apple Silicon
@@ -28,44 +30,44 @@ jobs:
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
-                -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+                -DSK_BUILD_HOST_TEST=ON
 
       - name: Kompilacja
         run: |
           cmake --build build --config Release --parallel 4 \
-                --target SekcjaKrzemowaPiano_All SekcjaKrzemowaBass_All sk_core_tests
+                --target SekcjaKrzemowaPiano_All SekcjaKrzemowaBass_All SekcjaKrzemowaWokal_All \
+                         sk_core_tests sk_vocal_tests sk_vocal_host_test
 
       - name: Testy rdzenia
-        run: ./build/sk_core_tests
+        run: |
+          ./build/sk_core_tests
+          ./build/sk_vocal_tests
 
       - name: Pakowanie i podpis ad-hoc
         run: |
           set -e
           OUT="dist/Sekcja Krzemowa"
-          mkdir -p "$OUT/VST3" "$OUT/Components"
-          for r in Piano Bass; do
+          mkdir -p "$OUT/VST3"
+          for r in Piano Bass Wokal; do
             A="build/SekcjaKrzemowa${r}_artefacts/Release"
             cp -R "$A/VST3/Sekcja Krzemowa ${r}.vst3" "$OUT/VST3/"
-            cp -R "$A/AU/Sekcja Krzemowa ${r}.component" "$OUT/Components/"
           done
-          find "$OUT" -maxdepth 2 \( -name "*.vst3" -o -name "*.component" \) -exec codesign --force --deep --sign - {} \;
+          find "$OUT" -maxdepth 2 \( -name "*.vst3" \) -exec codesign --force --deep --sign - {} \;
           cp docs/INSTALACJA.txt "$OUT/"
           lipo -info "$OUT/VST3/Sekcja Krzemowa Piano.vst3/Contents/MacOS/Sekcja Krzemowa Piano"
+          lipo -info "$OUT/VST3/Sekcja Krzemowa Wokal.vst3/Contents/MacOS/Sekcja Krzemowa Wokal"
           (cd dist && ditto -c -k --keepParent "Sekcja Krzemowa" SekcjaKrzemowa-macOS.zip)
-
-      - name: Walidacja AU (auval)
-        run: |
-          mkdir -p ~/Library/Audio/Plug-Ins/Components
-          cp -R "dist/Sekcja Krzemowa/Components/"*.component ~/Library/Audio/Plug-Ins/Components/
-          killall -9 AudioComponentRegistrar 2>/dev/null || true
-          sleep 3
-          auval -v aumf SkPn Skrz
-          auval -v aumf SkBs Skrz
 
       - uses: actions/upload-artifact@v4
         with:
           name: SekcjaKrzemowa-macOS
           path: dist/SekcjaKrzemowa-macOS.zip
+
+      - name: Test Wokalu w hoście (VST3, piec, bębny)
+        run: |
+          ./build/sk_vocal_host_test_artefacts/Release/sk_vocal_host_test \
+            "build/SekcjaKrzemowaWokal_artefacts/Release/VST3/Sekcja Krzemowa Wokal.vst3" "$RUNNER_TEMP/wokal"
 
       - name: Wydanie (dla tagów v*)
         if: startsWith(github.ref, 'refs/tags/v')

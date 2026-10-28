@@ -41,9 +41,9 @@ private:
     std::unique_ptr<juce::Drawable> banner, being;
 
     juce::GroupComponent harmonyGroup, feelGroup, drumGroup;
-    juce::ComboBox keyBox, progABox, progBBox, groupBox;
-    juce::Label keyLabel, progALabel, progBLabel, groupLabel;
-    std::unique_ptr<ComboAttachment> keyAtt, progAAtt, progBAtt, groupAtt;
+    juce::ComboBox keyBox, progABox, progBBox, groupBox, mapBox;
+    juce::Label keyLabel, progALabel, progBLabel, groupLabel, mapLabel;
+    std::unique_ptr<ComboAttachment> keyAtt, progAAtt, progBAtt, groupAtt, mapAtt;
     juce::ToggleButton fillToggle { U("Przejście na tomach zmienia sekcję") }, giveWayToggle { U("Ustępuj basowi (bez niskich nut)") };
     std::unique_ptr<ButtonAttachment> fillAtt, giveWayAtt;
 

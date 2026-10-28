@@ -70,6 +70,7 @@ SekcjaEditor::SekcjaEditor(SekcjaProcessor& p)
     addNumber("hhNote", "Hi-hat", true);
     addNumber("midiCh", U("Kanał wyj."), false);
     addCombo(groupBox, groupLabel, "group", "Link", groupAtt);
+    addCombo(mapBox, mapLabel, "drumMap", "Mapa", mapAtt);
 
     setSize(W, H);
     startTimerHz(30);
@@ -197,9 +198,12 @@ void SekcjaEditor::resized()
         numbers[i]->label.setBounds(cell.removeFromLeft(66));
         numbers[i]->slider.setBounds(cell.withSizeKeepingCentre(cell.getWidth(), 24));
     }
-    auto cell = row2.removeFromLeft(cw * 2).reduced(2, 3);
+    auto cell = row2.removeFromLeft(cw).reduced(2, 3);
     groupLabel.setBounds(cell.removeFromLeft(40));
-    groupBox.setBounds(cell.withSizeKeepingCentre(jmin(140, cell.getWidth()), 24));
+    groupBox.setBounds(cell.withSizeKeepingCentre(cell.getWidth(), 24));
+    cell = row2.reduced(2, 3);
+    mapLabel.setBounds(cell.removeFromLeft(44));
+    mapBox.setBounds(cell.withSizeKeepingCentre(cell.getWidth(), 24));
 }
 
 void SekcjaEditor::timerCallback()
@@ -207,6 +211,10 @@ void SekcjaEditor::timerCallback()
     const uint32_t f = proc.drumFlash.exchange(0, std::memory_order_relaxed);
     for (int i = 0; i < 6; ++i)
         flash[i] = (f >> i & 1u) ? 1.0f : flash[i] * 0.82f;
+    // Gotowa mapa perkusji zastępuje ręczne numery nut.
+    const bool manualNotes = mapBox.getSelectedItemIndex() <= 0;
+    for (int i = 0; i < numbers.size() - 1; ++i)
+        numbers[i]->slider.setEnabled(manualNotes);
     shownEnergy += 0.15f * (proc.engine().status.energy.load() - shownEnergy);
     phase += 1.0 / 30.0;
     repaint();

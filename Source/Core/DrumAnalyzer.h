@@ -7,13 +7,36 @@ namespace sk {
 
 enum class DrumPart : uint8_t { None, Kick, Snare, Tom, HiHat, Cymbal };
 
-// Mapa perkusji: własne numery nut użytkownika + aliasy General MIDI.
+// Gotowe mapy perkusji.
+enum class DrumPreset : int { GeneralMidi = 0, GgdModernMassive2 = 1 };
+
+// GGD Modern & Massive 2 (mapa domyślna, C1 = 36). Ride (bow/bell) liczymy jako
+// hi-hat, bo trzyma puls tak samo; choke'i talerzy to nie uderzenia.
+inline DrumPart classifyGgdMm2(int note)
+{
+    switch (note)
+    {
+        case 36: return DrumPart::Kick;
+        case 37: case 38: case 39: return DrumPart::Snare;
+        case 42: case 43: case 44: case 45: case 46: case 47: case 48: return DrumPart::Tom;
+        case 49: case 50: case 51: case 52: case 53: case 54: case 55: case 56: case 57:
+        case 68: case 69: return DrumPart::HiHat;
+        case 58: case 60: case 62: case 64: case 66: case 70: case 74: case 76: return DrumPart::Cymbal;
+        default: return DrumPart::None;
+    }
+}
+
+// Mapa perkusji: własne numery nut użytkownika + aliasy General MIDI
+// albo gotowa mapa konkretnego instrumentu.
 struct DrumMap
 {
     int kick = 36, snare = 38, tom1 = 48, tom2 = 45, hihat = 42;
+    DrumPreset preset = DrumPreset::GeneralMidi;
 
     DrumPart classify(int note) const
     {
+        if (preset == DrumPreset::GgdModernMassive2)
+            return classifyGgdMm2(note);
         if (note == kick) return DrumPart::Kick;
         if (note == snare) return DrumPart::Snare;
         if (note == tom1 || note == tom2) return DrumPart::Tom;
