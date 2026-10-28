@@ -1,0 +1,74 @@
+name: Build macOS (VST3 + AU)
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  core-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Testy rdzenia (bez JUCE)
+        run: |
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -o sk_core_tests tests/CoreTests.cpp Source/Core/*.cpp -lrt
+          ./sk_core_tests
+
+  macos:
+    runs-on: macos-14   # Apple Silicon
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Konfiguracja (universal: arm64 + x86_64)
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Kompilacja
+        run: |
+          cmake --build build --config Release --parallel 4 \
+                --target SekcjaKrzemowaPiano_All SekcjaKrzemowaBass_All sk_core_tests
+
+      - name: Testy rdzenia
+        run: ./build/sk_core_tests
+
+      - name: Pakowanie i podpis ad-hoc
+        run: |
+          set -e
+          OUT="dist/Sekcja Krzemowa"
+          mkdir -p "$OUT/VST3" "$OUT/Components"
+          for r in Piano Bass; do
+            A="build/SekcjaKrzemowa${r}_artefacts/Release"
+            cp -R "$A/VST3/Sekcja Krzemowa ${r}.vst3" "$OUT/VST3/"
+            cp -R "$A/AU/Sekcja Krzemowa ${r}.component" "$OUT/Components/"
+          done
+          find "$OUT" -maxdepth 2 \( -name "*.vst3" -o -name "*.component" \) -exec codesign --force --deep --sign - {} \;
+          cp docs/INSTALACJA.txt "$OUT/"
+          lipo -info "$OUT/VST3/Sekcja Krzemowa Piano.vst3/Contents/MacOS/Sekcja Krzemowa Piano"
+          (cd dist && ditto -c -k --keepParent "Sekcja Krzemowa" SekcjaKrzemowa-macOS.zip)
+
+      - name: Walidacja AU (auval)
+        run: |
+          mkdir -p ~/Library/Audio/Plug-Ins/Components
+          cp -R "dist/Sekcja Krzemowa/Components/"*.component ~/Library/Audio/Plug-Ins/Components/
+          killall -9 AudioComponentRegistrar 2>/dev/null || true
+          sleep 3
+          auval -v aumf SkPn Skrz
+          auval -v aumf SkBs Skrz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SekcjaKrzemowa-macOS
+          path: dist/SekcjaKrzemowa-macOS.zip
+
+      - name: Wydanie (dla tagów v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/SekcjaKrzemowa-macOS.zip

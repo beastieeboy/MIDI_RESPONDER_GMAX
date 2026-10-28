@@ -1,0 +1,20 @@
+SEKCJA KRZEMOWA – instalacja na macOS (Apple Silicon)
+=====================================================
+
+1. Skopiuj:
+   VST3/*.vst3        ->  ~/Library/Audio/Plug-Ins/VST3/
+   Components/*.component -> ~/Library/Audio/Plug-Ins/Components/
+
+   (W Finderze: Idź -> Idź do folderu… i wklej ścieżkę.)
+
+2. Wtyczki nie są podpisane certyfikatem Apple, więc zdejmij kwarantannę
+   (Terminal):
+
+   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Sekcja\ Krzemowa*.vst3
+   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/Sekcja\ Krzemowa*.component
+
+3. W REAPER: Options -> Preferences -> Plug-ins -> VST -> "Re-scan".
+   Wtyczki pojawią się jako "Sekcja Krzemowa Piano" i "Sekcja Krzemowa Bass"
+   (producent: Sekcja Krzemowa). W REAPER zalecamy wersję VST3.
+
+Ustawienie projektu – patrz README.md w repozytorium (sekcja "REAPER krok po kroku").
