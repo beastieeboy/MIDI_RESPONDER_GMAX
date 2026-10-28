@@ -114,6 +114,7 @@ static void testJam()
         info.ppqStart = ppq;
         info.ppqPerSample = pps;
         info.numSamples = block;
+        info.barOrigin = std::floor(ppq / 4.0) * 4.0; // jak REAPER: początek bieżącego taktu
 
         for (int which = 0; which < 2; ++which)
         {
@@ -181,6 +182,12 @@ static void testJam()
     CHECK(pianoChordByBar[8] == 9 * 16 + Maj, "refren nie zaczyna się od I: %d", pianoChordByBar[8]);
     // Zwrotka vi-IV-I-V w A: takt 1 => D dur
     CHECK(pianoChordByBar[1] == 2 * 16 + Maj, "takt 1 powinien być D: %d", pianoChordByBar[1]);
+    {
+        // cała progresja zwrotki, nie tylko dwa akordy (REAPER przesuwa barOrigin co takt)
+        std::map<int, int> distinct;
+        for (int b = 0; b < 4; ++b) distinct[pianoChordByBar[b]]++;
+        CHECK(distinct.size() == 4, "zwrotka powinna mieć 4 różne akordy: %d", int(distinct.size()));
+    }
 
     // Piano w przejściu milknie (druga połowa taktu 7)
     for (auto& n : pn) if (n.on) CHECK(! (n.ppq > 7 * 4 + 2.1 && n.ppq < 8 * 4 - 0.1), "piano gra w przejściu %.2f", n.ppq);

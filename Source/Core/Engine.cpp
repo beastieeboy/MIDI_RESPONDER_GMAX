@@ -106,7 +106,9 @@ void Engine::process(const BlockInfo& info, const EngineParams& p, const DrumHit
     expectedPpq = p1;
     drums.map = p.drums;
 
-    const double origin = info.barOrigin;
+    // Host podaje początek *bieżącego* taktu, który przesuwa się co takt. Zostawiamy
+    // tylko fazę siatki taktów, żeby numer taktu był bezwzględny (od początku projektu).
+    const double origin = info.barOrigin - std::floor(info.barOrigin / info.barLenPpq) * info.barLenPpq;
     const double feelOff = std::clamp(double(drums.feel()) * p.feel, -0.06, 0.06);
     long long gs = (long long) std::ceil((p0 - feelOff - origin) / stepLen - 1e-9);
     int hi = 0;

@@ -43,7 +43,7 @@ struct BlockInfo
     int numSamples = 0;
     double barLenPpq = 4.0;       // długość taktu w ćwierćnutach
     int stepsPerBar = 16;         // liczba 16-tek w takcie
-    double barOrigin = 0.0;       // ppq dowolnego początku taktu
+    double barOrigin = 0.0;       // ppq dowolnego początku taktu (np. bieżącego)
 };
 
 struct MidiOut
