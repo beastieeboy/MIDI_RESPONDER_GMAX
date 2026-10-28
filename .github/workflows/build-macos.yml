@@ -1,4 +1,4 @@
-name: Build macOS (VST3 + AU)
+name: Build macOS (VST3)
 
 on:
   push:
@@ -42,25 +42,15 @@ jobs:
         run: |
           set -e
           OUT="dist/Sekcja Krzemowa"
-          mkdir -p "$OUT/VST3" "$OUT/Components"
+          mkdir -p "$OUT/VST3"
           for r in Piano Bass; do
             A="build/SekcjaKrzemowa${r}_artefacts/Release"
             cp -R "$A/VST3/Sekcja Krzemowa ${r}.vst3" "$OUT/VST3/"
-            cp -R "$A/AU/Sekcja Krzemowa ${r}.component" "$OUT/Components/"
           done
-          find "$OUT" -maxdepth 2 \( -name "*.vst3" -o -name "*.component" \) -exec codesign --force --deep --sign - {} \;
+          find "$OUT" -maxdepth 2 \( -name "*.vst3" \) -exec codesign --force --deep --sign - {} \;
           cp docs/INSTALACJA.txt "$OUT/"
           lipo -info "$OUT/VST3/Sekcja Krzemowa Piano.vst3/Contents/MacOS/Sekcja Krzemowa Piano"
           (cd dist && ditto -c -k --keepParent "Sekcja Krzemowa" SekcjaKrzemowa-macOS.zip)
-
-      - name: Walidacja AU (auval)
-        run: |
-          mkdir -p ~/Library/Audio/Plug-Ins/Components
-          cp -R "dist/Sekcja Krzemowa/Components/"*.component ~/Library/Audio/Plug-Ins/Components/
-          killall -9 AudioComponentRegistrar 2>/dev/null || true
-          sleep 3
-          auval -v aumf SkPn Skrz
-          auval -v aumf SkBs Skrz
 
       - uses: actions/upload-artifact@v4
         with:

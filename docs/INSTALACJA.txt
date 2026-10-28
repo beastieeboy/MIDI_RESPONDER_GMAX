@@ -1,20 +1,28 @@
-SEKCJA KRZEMOWA – instalacja na macOS (Apple Silicon)
-=====================================================
+SEKCJA KRZEMOWA – instalacja na macOS (Apple Silicon i Intel)
+============================================================
 
 1. Skopiuj:
-   VST3/*.vst3        ->  ~/Library/Audio/Plug-Ins/VST3/
-   Components/*.component -> ~/Library/Audio/Plug-Ins/Components/
+   VST3/*.vst3  ->  ~/Library/Audio/Plug-Ins/VST3/
 
    (W Finderze: Idź -> Idź do folderu… i wklej ścieżkę.)
 
-2. Wtyczki nie są podpisane certyfikatem Apple, więc zdejmij kwarantannę
-   (Terminal):
+   Jeśli masz starą wersję AU (Sekcja Krzemowa *.component w
+   ~/Library/Audio/Plug-Ins/Components/), usuń ją – w REAPER-ze AU
+   przepuszcza nuty bębnów do instrumentu.
+
+2. Wtyczki nie są podpisane certyfikatem Apple, więc zamknij REAPER-a
+   i zdejmij kwarantannę (Terminal):
 
    xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Sekcja\ Krzemowa*.vst3
-   xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/Sekcja\ Krzemowa*.component
 
-3. W REAPER: Options -> Preferences -> Plug-ins -> VST -> "Re-scan".
-   Wtyczki pojawią się jako "Sekcja Krzemowa Piano" i "Sekcja Krzemowa Bass"
-   (producent: Sekcja Krzemowa). W REAPER zalecamy wersję VST3.
+   Jeśli macOS nadal blokuje: Ustawienia systemowe -> Prywatność i ochrona
+   -> na dole "Otwórz mimo to".
+
+3. W REAPER: Options -> Preferences -> Plug-ins -> VST -> "Clear cache/re-scan".
+   Wtyczki pojawią się jako "VST3: Sekcja Krzemowa Piano" i
+   "VST3: Sekcja Krzemowa Bass" (producent: Sekcja Krzemowa).
+
+4. GGD Modern & Massive 2: w panelu "Bębny i wyjście" ustaw Mapa ->
+   "GGD Modern & Massive 2" (w obu wtyczkach).
 
 Ustawienie projektu – patrz README.md w repozytorium (sekcja "REAPER krok po kroku").

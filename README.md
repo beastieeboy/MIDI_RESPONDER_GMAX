@@ -1,6 +1,6 @@
 # Sekcja Krzemowa
 
-Dwie wtyczki MIDI (VST3 + AU, macOS Apple Silicon) dla REAPER-a, które grają
+Dwie wtyczki MIDI (VST3, macOS Apple Silicon i Intel) dla REAPER-a, które grają
 z bębniarzem na żywo:
 
 - **Sekcja Krzemowa Piano** słucha bębnów (stopa, werbel, 2 tomy, hi-hat) i gra
@@ -34,6 +34,9 @@ w zakładce **Actions → Build macOS → Artifacts** (a po otagowaniu `v*` tak�
 6. Jeśli Twoja perkusja wysyła inne numery nut niż General MIDI, ustaw je w
    panelu **Bębny i wyjście** (stopa, werbel, tom 1, tom 2, hi-hat). Aliasy GM
    (np. 35/36 stopa, 42/44/46 hi-hat, 49/57 crash) są rozpoznawane zawsze.
+   Dla **GGD Modern & Massive 2** wybierz w polu **Mapa** gotową mapę
+   „GGD Modern & Massive 2” (toms 42–48, hi-hat 49–57, ride liczony jak hi-hat,
+   choke'i ignorowane); ręczne numery nut są wtedy wyłączone.
 7. Piano i Bass muszą mieć ten sam **Link** (Zespół 1–4). Kilka zespołów w
    jednym projekcie nie przeszkadza sobie nawzajem.
 

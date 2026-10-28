@@ -71,6 +71,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SekcjaProcessor::createLayou
         AudioParameterFloatAttributes().withStringFromValueFunction(
             [](float v, int) { return (v > 0 ? "+" : "") + String(roundToInt(v * 100.0f)) + " %"; })));
 
+    l.add(std::make_unique<AudioParameterChoice>(ParameterID { "drumMap", 1 }, "Mapa perkusji",
+                                                 StringArray { U("Własne nuty / GM"), "GGD Modern & Massive 2" }, 0));
     l.add(std::make_unique<AudioParameterInt>(ParameterID { "kickNote", 1 }, "Nuta stopy", 0, 127, 36));
     l.add(std::make_unique<AudioParameterInt>(ParameterID { "snareNote", 1 }, "Nuta werbla", 0, 127, 38));
     l.add(std::make_unique<AudioParameterInt>(ParameterID { "tom1Note", 1 }, "Nuta tomu 1", 0, 127, 48));
@@ -109,6 +111,7 @@ sk::EngineParams SekcjaProcessor::currentParams() const
     p.drums.tom1 = intParam(apvts, "tom1Note");
     p.drums.tom2 = intParam(apvts, "tom2Note");
     p.drums.hihat = intParam(apvts, "hhNote");
+    p.drums.preset = static_cast<sk::DrumPreset>(intParam(apvts, "drumMap"));
     if (! isBass)
     {
         p.harmony.key = intParam(apvts, "key");

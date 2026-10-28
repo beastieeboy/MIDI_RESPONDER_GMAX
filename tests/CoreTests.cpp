@@ -203,8 +203,30 @@ static void testJam()
                 link.isShared() ? "tak (shm)" : "nie");
 }
 
+static void testDrumMaps()
+{
+    DrumMap gm;
+    CHECK(gm.classify(36) == DrumPart::Kick, "GM: stopa");
+    CHECK(gm.classify(42) == DrumPart::HiHat, "GM: hi-hat");
+    CHECK(gm.classify(49) == DrumPart::Cymbal, "GM: crash");
+
+    DrumMap ggd;
+    ggd.preset = DrumPreset::GgdModernMassive2;
+    CHECK(ggd.classify(36) == DrumPart::Kick, "GGD: stopa");
+    CHECK(ggd.classify(38) == DrumPart::Snare && ggd.classify(37) == DrumPart::Snare, "GGD: werbel");
+    for (int n : { 42, 43, 44, 45, 46, 47, 48 })
+        CHECK(ggd.classify(n) == DrumPart::Tom, "GGD: tom %d", n);
+    for (int n : { 49, 50, 51, 52, 53, 54, 55, 56, 57, 68 })
+        CHECK(ggd.classify(n) == DrumPart::HiHat, "GGD: hi-hat %d", n);
+    for (int n : { 58, 60, 64, 70, 74, 76 })
+        CHECK(ggd.classify(n) == DrumPart::Cymbal, "GGD: talerz %d", n);
+    for (int n : { 59, 61, 65, 71, 75, 77 })
+        CHECK(ggd.classify(n) == DrumPart::None, "GGD: choke %d", n);
+}
+
 int main()
 {
+    testDrumMaps();
     testRemap();
     testLibrary();
     testJam();
