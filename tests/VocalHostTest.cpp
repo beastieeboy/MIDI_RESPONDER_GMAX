@@ -51,6 +51,17 @@ static File writeVocal(const File& dir, const String& name, double hz)
     return file;
 }
 
+// Stan VST3 z hosta JUCE to XML "VST3PluginState", w którym <IComponent> niesie (base64)
+// dokładnie to, co zapisała wtyczka. Rozpakowujemy go, żeby czytać i zmieniać piec.
+static std::unique_ptr<XmlElement> pluginXml(const XmlElement& host)
+{
+    MemoryBlock mem;
+    if (auto* c = host.getChildByName("IComponent"))
+        if (mem.fromBase64Encoding(c->getAllSubText()))
+            return AudioProcessor::getXmlFromBinary(mem.getData(), (int) mem.getSize());
+    return {};
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 3) return 2;
@@ -75,13 +86,20 @@ int main(int argc, char** argv)
     // Stan z piecem: dwa sample (tak wtyczka odtwarza projekt REAPER-a).
     MemoryBlock state;
     plug->getStateInformation(state);
-    auto xml = AudioProcessor::getXmlFromBinary(state.getData(), (int) state.getSize());
+    auto host = AudioProcessor::getXmlFromBinary(state.getData(), (int) state.getSize());
+    auto xml = host ? pluginXml(*host) : nullptr;
     if (! xml) { std::printf("Brak stanu\n"); return 1; }
-    auto* furnace = xml->createNewChildElement("Furnace");
+    auto* furnace = xml->getChildByName("Furnace");   // wtyczka zapisuje pusty piec
+    if (furnace == nullptr) furnace = xml->createNewChildElement("Furnace");
     for (auto& f : { a, b })
         furnace->createNewChildElement("Sample")->setAttribute("path", f.getFullPathName());
+    MemoryBlock inner;
+    AudioProcessor::copyXmlToBinary(*xml, inner);
+    host->getChildByName("IComponent")->deleteAllTextElements();
+    host->getChildByName("IComponent")->addTextElement(inner.toBase64Encoding());
+    host->removeChildElement(host->getChildByName("IEditController"), true);
     MemoryBlock withFurnace;
-    AudioProcessor::copyXmlToBinary(*xml, withFurnace);
+    AudioProcessor::copyXmlToBinary(*host, withFurnace);
     plug->setStateInformation(withFurnace.getData(), (int) withFurnace.getSize());
     for (int i = 0; i < 30; ++i) MessageManager::getInstance()->runDispatchLoopUntil(100); // wczytywanie w tle
 
@@ -126,7 +144,8 @@ int main(int argc, char** argv)
     // zapisany stan pamięta piec
     MemoryBlock after;
     plug->getStateInformation(after);
-    auto xml2 = AudioProcessor::getXmlFromBinary(after.getData(), (int) after.getSize());
+    auto host2 = AudioProcessor::getXmlFromBinary(after.getData(), (int) after.getSize());
+    auto xml2 = host2 ? pluginXml(*host2) : nullptr;
     int saved = 0;
     if (xml2)
         if (auto* f = xml2->getChildByName("Furnace"))

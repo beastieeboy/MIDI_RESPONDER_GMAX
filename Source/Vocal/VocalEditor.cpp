@@ -246,7 +246,7 @@ void VocalEditor::addCombo(ComboBox& box, Label& label, const String& paramId, c
 
 int VocalEditor::getNumRows()
 {
-    return proc.samplePool().size();
+    return int(contents.size());
 }
 
 void VocalEditor::paintListBoxItem(int row, Graphics& g, int w, int h, bool)
@@ -258,7 +258,7 @@ void VocalEditor::paintListBoxItem(int row, Graphics& g, int w, int h, bool)
 Component* VocalEditor::refreshComponentForRow(int row, bool, Component* existing)
 {
     auto* r = dynamic_cast<Row*>(existing);
-    if (row >= proc.samplePool().size())
+    if (row >= int(contents.size()))
     {
         delete existing;
         return nullptr;
@@ -268,7 +268,7 @@ Component* VocalEditor::refreshComponentForRow(int row, bool, Component* existin
         delete existing;
         r = new Row(*this);
     }
-    r->set(row, proc.samplePool().at(row));
+    r->set(row, contents[size_t(row)]);
     return r;
 }
 
@@ -421,10 +421,11 @@ void VocalEditor::timerCallback()
     if (shownVersion != proc.poolVersion())
     {
         shownVersion = proc.poolVersion();
+        contents = proc.poolContents();
         furnaceList.updateContent();
         furnaceList.repaint();
     }
-    for (int i = 0; i < proc.samplePool().size(); ++i)
+    for (int i = 0; i < int(contents.size()); ++i)
         if (auto* r = dynamic_cast<Row*>(furnaceList.getComponentForRowNumber(i)))
             r->tick();
 
@@ -521,7 +522,7 @@ void VocalEditor::paintStatus(Graphics& g)
     g.drawFittedText(U("ziarna strojone\nna składniki akordu"), chord.reduced(6, 2), Justification::centredLeft, 2);
 
     String mode;
-    if (proc.samplePool().size() == 0)
+    if (contents.empty())
         mode = proc.pendingLoads() > 0 ? U("Rozpalam piec…") : U("Piec pusty – wrzuć sample wokalu");
     else if (st.activity.load() < 0.05f)
         mode = U("Czekam na bębniarza…");
@@ -601,7 +602,7 @@ void VocalEditor::paint(Graphics& g)
     if (st.playing.load() && st.bar.load() >= 0)
         foot << "Takt " << (st.bar.load() + 1) << U("  ·  ") << (st.section.load() ? "Refren" : "Zwrotka") << U("  ·  ");
     foot << "Piano: " << (st.followingPiano.load() ? U("połączony") : "brak") << " (" << groupBox.getText() << ")"
-         << U("  ·  piec: ") << proc.samplePool().size() << "/" << sk::PoolSnapshot::maxSamples;
+         << U("  ·  piec: ") <<  int(contents.size()) << "/" << sk::PoolSnapshot::maxSamples;
     if (proc.pendingLoads() > 0)
         foot << U("  ·  wczytuję ") << proc.pendingLoads();
     g.setColour(palette::dim);
@@ -631,7 +632,7 @@ void VocalEditor::paintOverChildren(Graphics& g)
     }
     g.drawFittedText(folder, folderInfoArea, Justification::centredLeft, 1);
 
-    if (proc.samplePool().size() == 0)
+    if (contents.empty())
     {
         g.setColour(palette::dim.brighter(0.2f));
         g.setFont(Font(FontOptions(14.0f)));

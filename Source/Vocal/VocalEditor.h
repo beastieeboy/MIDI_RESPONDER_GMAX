@@ -77,6 +77,7 @@ private:
     double phase = 0.0;
     bool dragging = false;
     int shownVersion = -1;
+    std::vector<std::shared_ptr<sk::VocalSample>> contents;   // kopia pieca dla listy
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VocalEditor)
 };

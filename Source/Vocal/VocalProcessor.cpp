@@ -266,9 +266,12 @@ void VocalProcessor::addFiles(const juce::StringArray& paths)
 void VocalProcessor::queueLoad(const juce::File& file, float weight)
 {
     const auto path = file.getFullPathName();
-    if (known.contains(path))
-        return;
-    known.add(path);
+    {
+        const juce::ScopedLock sl(poolLock);
+        if (known.contains(path))
+            return;
+        known.add(path);
+    }
     ++loading;
     loader.addJob([this, file, weight]
     {
@@ -296,19 +299,29 @@ void VocalProcessor::queueLoad(const juce::File& file, float weight)
                 sample->weight = weight;
             }
         }
-        if (! sample)
+        // Prosto do pieca z wątku wczytywania: nie czekamy na pętlę wiadomości hosta
+        // (część hostów nie obsługuje timerów wtyczki, dopóki okno jest zamknięte).
+        const juce::ScopedLock sl(poolLock);
+        if (sample)
         {
-            // pusty sampel = błąd wczytywania (zgłaszany w GUI)
-            sample = std::make_shared<sk::VocalSample>();
-            sample->path = file.getFullPathName().toStdString();
+            if (pool.size() >= sk::PoolSnapshot::maxSamples)   // najstarszy sampel się spala
+                known.removeString(juce::String::fromUTF8(pool.at(0)->path.c_str()));
+            pool.add(std::move(sample));
+            loadError = {};
         }
-        const juce::ScopedLock sl(doneLock);
-        done.emplace_back(std::move(sample), weight);
+        else
+        {
+            known.removeString(file.getFullPathName());
+            loadError = U("Nie udało się wczytać: ") + file.getFileName();
+        }
+        ++version;
+        --loading;
     });
 }
 
 void VocalProcessor::removeSample(int index)
 {
+    const juce::ScopedLock sl(poolLock);
     if (index < 0 || index >= pool.size())
         return;
     known.removeString(juce::String::fromUTF8(pool.at(index)->path.c_str()));
@@ -318,6 +331,7 @@ void VocalProcessor::removeSample(int index)
 
 void VocalProcessor::clearPool()
 {
+    const juce::ScopedLock sl(poolLock);
     for (int i = 0; i < pool.size(); ++i)
         known.removeString(juce::String::fromUTF8(pool.at(i)->path.c_str()));
     pool.clear();
@@ -360,34 +374,31 @@ void VocalProcessor::scanFurnaceFolder()
 
 void VocalProcessor::timerCallback()
 {
-    std::vector<std::pair<std::shared_ptr<sk::VocalSample>, float>> ready;
     {
-        const juce::ScopedLock sl(doneLock);
-        ready.swap(done);
+        const juce::ScopedLock sl(poolLock);
+        pool.collectGarbage();
     }
-    for (auto& [s, w] : ready)
-    {
-        --loading;
-        if (s->audio.empty())
-        {
-            const auto path = juce::String::fromUTF8(s->path.c_str());
-            known.removeString(path);
-            loadError = U("Nie udało się wczytać: ") + juce::File(path).getFileName();
-            continue;
-        }
-        if (pool.size() >= sk::PoolSnapshot::maxSamples)   // najstarszy sampel się spala
-            known.removeString(juce::String::fromUTF8(pool.at(0)->path.c_str()));
-        pool.add(s);
-        loadError = {};
-        ++version;
-    }
-    pool.collectGarbage();
 
     if (++folderTick >= 20) // co 2 s
     {
         folderTick = 0;
         scanFurnaceFolder();
     }
+}
+
+std::vector<std::shared_ptr<sk::VocalSample>> VocalProcessor::poolContents() const
+{
+    const juce::ScopedLock sl(poolLock);
+    std::vector<std::shared_ptr<sk::VocalSample>> v;
+    for (int i = 0; i < pool.size(); ++i)
+        v.push_back(pool.at(i));
+    return v;
+}
+
+juce::String VocalProcessor::lastError() const
+{
+    const juce::ScopedLock sl(poolLock);
+    return loadError;
 }
 
 juce::AudioProcessorEditor* VocalProcessor::createEditor()
@@ -404,11 +415,11 @@ void VocalProcessor::getStateInformation(juce::MemoryBlock& destData)
     auto* furnace = xml->createNewChildElement("Furnace");
     furnace->setAttribute("folder", furnaceFolder.getFullPathName());
     furnace->setAttribute("scannedAt", juce::String(juce::Time::currentTimeMillis()));
-    for (int i = 0; i < pool.size(); ++i)
+    for (const auto& s : poolContents())
     {
         auto* e = furnace->createNewChildElement("Sample");
-        e->setAttribute("path", juce::String::fromUTF8(pool.at(i)->path.c_str()));
-        e->setAttribute("weight", (double) pool.at(i)->weight.load());
+        e->setAttribute("path", juce::String::fromUTF8(s->path.c_str()));
+        e->setAttribute("weight", (double) s->weight.load());
     }
     copyXmlToBinary(*xml, destData);
 }

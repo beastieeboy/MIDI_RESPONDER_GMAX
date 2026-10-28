@@ -46,10 +46,11 @@ public:
     void clearPool();
     void setFurnaceFolder(const juce::File& folder);
     juce::File getFurnaceFolder() const { return furnaceFolder; }
-    sk::SamplePool& samplePool() { return pool; }
+    // Kopia zawartości pieca (od najstarszego); bezpieczna z dowolnego wątku poza audio.
+    std::vector<std::shared_ptr<sk::VocalSample>> poolContents() const;
     int pendingLoads() const { return loading.load(); }
-    int poolVersion() const { return version; }            // rośnie przy każdej zmianie pieca
-    juce::String lastError() const { return loadError; }
+    int poolVersion() const { return version.load(); }     // rośnie przy każdej zmianie pieca
+    juce::String lastError() const;
 
     juce::AudioProcessorValueTreeState apvts;
     sk::VocalEngine& engine() { return vocal; }
@@ -72,14 +73,15 @@ private:
 
     // wczytywanie w tle
     juce::ThreadPool loader { 1 };
-    juce::CriticalSection doneLock;
-    std::vector<std::pair<std::shared_ptr<sk::VocalSample>, float>> done;
-    std::atomic<int> loading { 0 };
+    // Piec zmieniają: wątek wiadomości (GUI, folder, stan) i wątek wczytywania. Wątek audio
+    // nie bierze blokady – czyta tylko gotowe migawki (SamplePool::acquire).
+    mutable juce::CriticalSection poolLock;
+    std::atomic<int> loading { 0 }, version { 0 };
     juce::StringArray known;          // ścieżki w piecu lub w trakcie wczytywania
     juce::File furnaceFolder;
     juce::StringArray seenInFolder;   // "ścieżka|czas modyfikacji" plików już obejrzanych w folderze pieca
     juce::int64 folderBaseline = 0;   // pliki starsze niż zapis projektu nie wracają do pieca
-    int folderTick = 0, version = 0;
+    int folderTick = 0;
     juce::String loadError;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(VocalProcessor)
