@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Konfiguracja (universal: arm64 + x86_64)
+      - name: "Konfiguracja (universal: arm64 + x86_64)"
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
