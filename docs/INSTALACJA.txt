@@ -19,10 +19,14 @@ SEKCJA KRZEMOWA – instalacja na macOS (Apple Silicon i Intel)
    -> na dole "Otwórz mimo to".
 
 3. W REAPER: Options -> Preferences -> Plug-ins -> VST -> "Clear cache/re-scan".
-   Wtyczki pojawią się jako "VST3: Sekcja Krzemowa Piano" i
-   "VST3: Sekcja Krzemowa Bass" (producent: Sekcja Krzemowa).
+   Wtyczki pojawią się jako "VST3: Sekcja Krzemowa Piano",
+   "VST3: Sekcja Krzemowa Bass" (efekty MIDI) i
+   "VSTi: Sekcja Krzemowa Wokal" (instrument) – producent: Sekcja Krzemowa.
 
 4. GGD Modern & Massive 2: w panelu "Bębny i wyjście" ustaw Mapa ->
-   "GGD Modern & Massive 2" (w obu wtyczkach).
+   "GGD Modern & Massive 2" (we wszystkich wtyczkach).
+
+5. Wokal: osobna ścieżka z wysyłką MIDI z Bębnów, ten sam Link co Piano.
+   Sample wokalu przeciągnij na okno wtyczki albo wskaż "Folder pieca".
 
 Ustawienie projektu – patrz README.md w repozytorium (sekcja "REAPER krok po kroku").

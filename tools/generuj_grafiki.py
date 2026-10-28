@@ -23,6 +23,7 @@ VARIANTS = {
     "logo":  dict(acc="#a99bff", acc2="#5ee8dc", hi="#f2efff", halo="rhythm"),
     "piano": dict(acc="#ffbe73", acc2="#ff8f6b", hi="#fff4e4", halo="keys"),
     "bass":  dict(acc="#55e6d6", acc2="#4c9dff", hi="#e6fffb", halo="strings"),
+    "wokal": dict(acc="#ff7ad9", acc2="#b07bff", hi="#ffe9f8", halo="grains"),
 }
 
 CX, CY, R = 200, 205, 190
@@ -102,6 +103,26 @@ def halo(v, pre):
         for i in (2, 5, 9):  # „wciśnięte” klawisze akordu
             s = a0 + (a1 - a0) * i / n + 0.006; e = a0 + (a1 - a0) * (i + 1) / n - 0.006
             g.append(arcseg(s, e, 164, 174, v["acc"], 1))
+    elif kind == "grains":  # chmura ziaren: sample wokalu pocięte na drobiny, gęstniejące ku środkowi
+        rng = random.Random(11)
+        for i in range(90):
+            t = rng.random()
+            a = a0 + (a1 - a0) * t
+            dens = math.sin(math.pi * t)
+            r = 175 + rng.gauss(0, 4 + 5 * (1 - dens))
+            size = 1.0 + 3.2 * dens * rng.random()
+            col = rng.choice([v["acc"], v["acc"], v["acc2"], v["hi"]])
+            g.append(f'<circle cx="{CX + r * math.cos(a):.1f}" cy="{CY + r * math.sin(a):.1f}" r="{size:.2f}" '
+                     f'fill="{col}" opacity="{0.35 + 0.6 * dens * rng.random():.2f}"/>')
+        for k in range(5):  # kilka ziaren z obwiednią (okno Hanna)
+            t = 0.18 + 0.16 * k
+            am = a0 + (a1 - a0) * t
+            d = []
+            for i in range(25):
+                aa = am + (i - 12) * 0.006
+                rr = 160 - 9 * math.sin(math.pi * i / 24) ** 2
+                d.append(("M" if i == 0 else "L") + f"{CX + rr * math.cos(aa):.1f},{CY + rr * math.sin(aa):.1f}")
+            g.append(f'<path d="{" ".join(d)}" fill="none" stroke="{v["acc"]}" stroke-width="1.8" stroke-linecap="round" opacity="0.9"/>')
     else:  # 4 struny basu, najniższa drga
         for j, r in enumerate((166, 172, 178, 184)):
             d = []

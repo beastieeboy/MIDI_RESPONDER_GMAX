@@ -1,6 +1,6 @@
 # Sekcja Krzemowa
 
-Dwie wtyczki MIDI (VST3, macOS Apple Silicon i Intel) dla REAPER-a, które grają
+Trzy wtyczki VST3 (macOS Apple Silicon i Intel) dla REAPER-a, które grają
 z bębniarzem na żywo:
 
 - **Sekcja Krzemowa Piano** słucha bębnów (stopa, werbel, 2 tomy, hi-hat) i gra
@@ -8,6 +8,11 @@ z bębniarzem na żywo:
   tonację i progresje akordów zwrotki i refrenu.
 - **Sekcja Krzemowa Bass** słucha bębnów **i** instancji Piano. Progresję
   pobiera automatycznie, trzyma się stopy i dopełnia rytm Piano.
+- **Sekcja Krzemowa Wokal** to syntezator granularny, który gra **wyłącznie
+  z Twoich sampli wokalu** (bez oscylatorów i szumu). Wrzucasz sample do
+  „pieca”, a on tnie je na ziarna, stroi każde ziarno na bieżący akord Piano
+  i oddycha z bębniarzem: gęstszy hi-hat to gęstsza chmura, przejście na tomach
+  to puchnięcie, talerz to wybuch ziaren.
 
 Tempo i metrum pochodzą z projektu REAPER-a (bębniarz gra do klika).
 Wtyczki nie dodają opóźnienia (latencja 0 próbek).
@@ -44,6 +49,59 @@ Uwaga: REAPER domyślnie przetwarza ścieżki „z wyprzedzeniem” (anticipativ
 Ścieżki zasilane z uzbrojonej ścieżki z monitoringiem powinny iść w czasie
 rzeczywistym. Jeśli mimo to usłyszysz opóźnienie reakcji, uzbrój także ścieżki
 Piano i Bass z monitoringiem (wejście MIDI może być dowolne lub żadne).
+
+## Wokal: piec z samplami
+
+![Wokal](docs/gui-wokal.png)
+
+Wokal to instrument (wyjście audio), więc stoi na własnej ścieżce:
+
+1. **Ścieżka „Wokal”**: FX: `Sekcja Krzemowa Wokal`. Na ścieżce Bębny dodaj
+   wysyłkę MIDI do niej (audio `None`, MIDI `All → All`), tak jak do Piano i Bass.
+2. Ustaw ten sam **Link** co w Piano. Wokal bierze z niego tonację, progresję,
+   sekcję i akord każdego taktu. Bez Piano gra własną progresję z panelu
+   Harmonia.
+3. Wrzuć sample do **pieca**: przeciągnij pliki (WAV, AIFF, FLAC, MP3, M4A)
+   albo cały folder na okno wtyczki, albo użyj „Wsyp pliki…”. Możesz dorzucać
+   w trakcie grania; nowy sampel wchodzi do mieszanki od następnego ziarna.
+4. **Folder pieca** to folder obserwowany na bieżąco: każdy nowy plik audio,
+   który tam zapiszesz (np. render z REAPER-a albo nagranie z innego programu),
+   po ok. 2 s sam wpada do pieca.
+
+Piec mieści 32 sample. Gdy jest pełny, najstarszy sampel „spala się” i robi
+miejsce nowemu. Suwak przy samplu to jego udział w mieszance, a kropka żarzy
+się, gdy z sampla lecą ziarna. Projekt REAPER-a pamięta listę plików i udziały
+(same pliki zostają tam, gdzie były).
+
+Przy wczytaniu każdy sampel jest analizowany (wysokość metodą YIN, co ~5 ms)
+i wyrównywany głośnością. Dzięki temu każde ziarno wie, jaką ma wysokość
+w miejscu, z którego je wycięto, i można je przestroić dokładnie na składnik
+akordu. Fragmenty bez wysokości (spółgłoski, oddechy) grają w naturalnej
+wysokości sampla.
+
+| Gałka | Co robi |
+| --- | --- |
+| **Ziarno** | długość ziarna (10 ms – 1 s) |
+| **Gęstość** | ile ziaren na sekundę, zanim zareaguje na bębny |
+| **Pozycja / Rozrzut / Skan** | skąd w samplu brać ziarna, jak szeroko, i czy to miejsce ma płynąć w czasie |
+| **Wstecz** | szansa, że ziarno zagra od tyłu |
+| **Kształt** | obwiednia ziarna: gładka (chmura) albo perkusyjna (sieka) |
+| **Szerokość** | rozrzut ziaren w stereo |
+| **Strojenie** | 0 % zostawia naturalną melodię sampla (przesuniętą do akordu), 100 % stawia każde ziarno dokładnie na składniku akordu |
+| **Oktawa / Rozpiętość** | rejestr i to, jak szeroko ziarna rozchodzą się po składnikach akordu i oktawach |
+| **Samogłoski** | jak mocno preferować fragmenty śpiewane (z wysokością) zamiast spółgłosek |
+| **Świeżość** | 0 % to wszystkie sample po równo, wyżej to świeżo wrzucone grają częściej, a stare stygną |
+| **HH → gęstość** | gęstość hi-hatu steruje gęstością chmury (bez hi-hatu 0,3×, szesnastki 3×) |
+| **Tomy → puchnięcie** | przejście na tomach zagęszcza, wydłuża i podgłaśnia chmurę; talerz na „raz” wypuszcza wybuch ziaren |
+| **Puls** | stopa, werbel i hi-hat same wyzwalają ziarna (stopa: pryma, werbel: kwinta, hi-hat: jasne składniki wyżej) |
+| **Dynamika** | jak mocno siła uderzeń bębniarza wpływa na głośność |
+| **Graj bez bębniarza** | chmura gra też, gdy bębny milczą (domyślnie po takcie ciszy zanika) |
+
+Wokal nic nie publikuje do linku, tylko czyta. Nie może więc wpłynąć na Piano
+ani Bass i nie ma ryzyka sprzężenia zwrotnego. Wszystkie ziarna są składnikami
+bieżącego akordu, więc nie zgrzytają z resztą sekcji. Wątek audio nie alokuje
+pamięci i nie czeka na blokady: piec podmienia gotowe migawki, a stare sample
+są zwalniane dopiero, gdy żadne ziarno z nich nie gra.
 
 ## Jak gra
 
@@ -143,6 +201,7 @@ samo.
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DSK_COPY_PLUGINS=ON
 cmake --build build --config Release --parallel
 ./build/sk_core_tests
+./build/sk_vocal_tests
 ```
 
 Opcja `-DSK_BUILD_HOST_TEST=ON` buduje dodatkowo test ładujący VST3 w hoście
@@ -151,11 +210,13 @@ JUCE i narzędzie do zrzutów ekranu edytora.
 ## Struktura
 
 ```
-Source/Core/     rdzeń bez JUCE: Engine, DrumAnalyzer, Harmony, SharedLink, biblioteka licków
-Source/Plugin/   procesor i edytor JUCE (wspólny kod, rola z SK_ROLE_BASS)
+Source/Core/     rdzeń bez JUCE: Engine, DrumAnalyzer, Harmony, SharedLink, biblioteka licków,
+                 Wokal: VocalSample (analiza YIN), SamplePool (piec), VocalEngine (ziarna), ChordFollower
+Source/Plugin/   procesor i edytor JUCE Piano/Bass (wspólny kod, rola z SK_ROLE_BASS)
+Source/Vocal/    procesor i edytor JUCE Wokalu
 Resources/       grafiki istot krzemowych (SVG)
 tools/           ekstrakcja licków, generator grafik
-tests/           testy rdzenia (symulacja jamu), test w hoście, zrzuty GUI
+tests/           testy rdzenia (symulacja jamu, także z Wokalem), testy w hoście, zrzuty GUI
 ```
 
 ## Ograniczenia i dalsze kroki

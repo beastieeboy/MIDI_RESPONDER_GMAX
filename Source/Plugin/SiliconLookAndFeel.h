@@ -13,6 +13,8 @@ namespace palette {
     inline const juce::Colour piano2 { 0xffff8f6b };
     inline const juce::Colour bass { 0xff55e6d6 };
     inline const juce::Colour bass2 { 0xff4c9dff };
+    inline const juce::Colour vocal { 0xffff7ad9 };
+    inline const juce::Colour vocal2 { 0xffb07bff };
 }
 
 class SiliconLookAndFeel : public juce::LookAndFeel_V4
