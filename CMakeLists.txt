@@ -34,11 +34,9 @@ juce_add_binary_data(sk_assets SOURCES
     Resources/istota-logo.svg)
 set_target_properties(sk_assets PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
-if(APPLE)
-    set(SK_FORMATS AU VST3)
-else()
-    set(SK_FORMATS VST3)
-endif()
+# Tylko VST3: REAPER przepuszcza wejściowe MIDI przez wtyczki AU, więc nuty
+# bębnów trafiałyby do instrumentu razem z akompaniamentem.
+set(SK_FORMATS VST3)
 
 function(sk_add_plugin target product code is_bass bundle)
     juce_add_plugin(${target}
@@ -55,7 +53,6 @@ function(sk_add_plugin target product code is_bass bundle)
         NEEDS_MIDI_OUTPUT TRUE
         IS_MIDI_EFFECT FALSE
         EDITOR_WANTS_KEYBOARD_FOCUS FALSE
-        AU_MAIN_TYPE kAudioUnitType_MusicEffect
         VST3_CATEGORIES Fx Generator
         COPY_PLUGIN_AFTER_BUILD ${SK_COPY_PLUGINS})
 
