@@ -81,6 +81,8 @@ wysokości sampla.
 
 | Gałka | Co robi |
 | --- | --- |
+| **Tryb** | **Chór** (domyślny): 3–4 stałe głosy, każdy z jednego sampla, trzymają składniki akordu i płynnie zmieniają się na nowym akordzie. **Chmura**: rój losowych ziaren, bardziej teksturalny |
+| **Siatka** | w trybie Chmura ziarna startują na ósemkach albo szesnastkach tempa zamiast losowo (Swobodnie) |
 | **Ziarno** | długość ziarna (10 ms – 1 s) |
 | **Gęstość** | ile ziaren na sekundę, zanim zareaguje na bębny |
 | **Pozycja / Rozrzut / Skan** | skąd w samplu brać ziarna, jak szeroko, i czy to miejsce ma płynąć w czasie |

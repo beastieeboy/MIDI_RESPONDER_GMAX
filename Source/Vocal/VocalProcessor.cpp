@@ -68,18 +68,23 @@ juce::AudioProcessorValueTreeState::ParameterLayout VocalProcessor::createLayout
     l.add(std::make_unique<AudioParameterChoice>(ParameterID { "group", 1 }, U("Zespół"),
                                                  StringArray { U("Zespół 1"), U("Zespół 2"), U("Zespół 3"), U("Zespół 4") }, 0));
 
+    l.add(std::make_unique<AudioParameterChoice>(ParameterID { "mode", 1 }, "Tryb",
+                                                 StringArray { U("Chór (stałe głosy akordu)"), U("Chmura (rój ziaren)") }, 0));
+    l.add(std::make_unique<AudioParameterChoice>(ParameterID { "sync", 1 }, "Siatka chmury",
+                                                 StringArray { "Swobodnie", U("Ósemki"), "Szesnastki" }, 1));
+
     // ziarna
     NormalisableRange<float> ms(10.0f, 1000.0f);
     ms.setSkewForCentre(150.0f);
-    l.add(std::make_unique<AudioParameterFloat>(ParameterID { "grainMs", 1 }, "Ziarno", ms, 140.0f,
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID { "grainMs", 1 }, "Ziarno", ms, 300.0f,
         AudioParameterFloatAttributes().withStringFromValueFunction([](float v, int) { return String(roundToInt(v)) + " ms"; })));
     NormalisableRange<float> dens(1.0f, 80.0f);
     dens.setSkewForCentre(14.0f);
-    l.add(std::make_unique<AudioParameterFloat>(ParameterID { "density", 1 }, U("Gęstość"), dens, 14.0f,
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID { "density", 1 }, U("Gęstość"), dens, 8.0f,
         AudioParameterFloatAttributes().withStringFromValueFunction([](float v, int) { return String(v, 1) + " /s"; })));
     f01("position", "Pozycja", 0.3f);
-    f01("scatter", "Rozrzut", 0.6f);
-    l.add(std::make_unique<AudioParameterFloat>(ParameterID { "scan", 1 }, "Skan", NormalisableRange<float>(-1.0f, 1.0f), 0.0f,
+    f01("scatter", "Rozrzut", 0.15f);
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID { "scan", 1 }, "Skan", NormalisableRange<float>(-1.0f, 1.0f), 0.15f,
         AudioParameterFloatAttributes().withStringFromValueFunction(
             [](float v, int) { return (v > 0 ? "+" : "") + String(roundToInt(v * 100.0f)) + " %"; })));
     f01("reverse", "Wstecz", 0.0f);
@@ -87,18 +92,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout VocalProcessor::createLayout
     f01("width", U("Szerokość"), 0.6f);
 
     // strój i mieszanie
-    f01("retune", "Strojenie", 0.85f);
+    f01("retune", "Strojenie", 1.0f);
     l.add(std::make_unique<AudioParameterInt>(ParameterID { "octave", 1 }, "Oktawa", -2, 2, 0));
-    f01("spread", U("Rozpiętość"), 0.3f);
-    f01("voiced", U("Samogłoski"), 0.7f);
+    f01("spread", U("Rozpiętość"), 0.0f);
+    f01("voiced", U("Samogłoski"), 0.9f);
     f01("freshness", U("Świeżość"), 0.3f);
     l.add(std::make_unique<AudioParameterFloat>(ParameterID { "gain", 1 }, U("Głośność"), NormalisableRange<float>(-36.0f, 12.0f), 0.0f,
         AudioParameterFloatAttributes().withStringFromValueFunction([](float v, int) { return String(v, 1) + " dB"; })));
 
     // reakcja na bębny
-    f01("hatDensity", U("Hi-hat → gęstość"), 0.6f);
+    f01("hatDensity", U("Hi-hat → gęstość"), 0.3f);
     f01("swell", U("Tomy → puchnięcie"), 0.6f);
-    f01("pulse", U("Puls bębnów"), 0.3f);
+    f01("pulse", U("Puls bębnów"), 0.1f);
     f01("dynamics", "Dynamika", 0.6f);
     f01("reactivity", U("Reaktywność"), 0.6f);
     l.add(std::make_unique<AudioParameterBool>(ParameterID { "playAlways", 1 }, U("Graj bez bębniarza"), false));
@@ -124,6 +129,8 @@ sk::VocalParams VocalProcessor::currentParams() const
 {
     sk::VocalParams p;
     p.group = intParam(apvts, "group");
+    p.mode = intParam(apvts, "mode");
+    p.sync = intParam(apvts, "sync");
     p.grainMs = floatParam(apvts, "grainMs");
     p.density = floatParam(apvts, "density");
     p.position = floatParam(apvts, "position");

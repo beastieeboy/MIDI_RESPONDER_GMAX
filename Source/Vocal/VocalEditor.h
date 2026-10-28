@@ -65,13 +65,13 @@ private:
     juce::ToggleButton playAlwaysToggle { U("Graj bez bębniarza") }, fillToggle { U("Przejście zmienia sekcję") };
     std::unique_ptr<ButtonAttachment> playAlwaysAtt, fillAtt;
 
-    juce::ComboBox keyBox, progABox, progBBox, groupBox, mapBox;
-    juce::Label keyLabel, progALabel, progBLabel, groupLabel, mapLabel;
-    std::unique_ptr<ComboAttachment> keyAtt, progAAtt, progBAtt, groupAtt, mapAtt;
+    juce::ComboBox keyBox, progABox, progBBox, groupBox, mapBox, modeBox, syncBox;
+    juce::Label keyLabel, progALabel, progBLabel, groupLabel, mapLabel, modeLabel, syncLabel;
+    std::unique_ptr<ComboAttachment> keyAtt, progAAtt, progBAtt, groupAtt, mapAtt, modeAtt, syncAtt;
 
     std::unique_ptr<juce::FileChooser> chooser;
 
-    juce::Rectangle<int> beingArea, statusArea, footerArea, linkInfoArea, chordRow;
+    juce::Rectangle<int> beingArea, statusArea, modeArea, footerArea, linkInfoArea, chordRow;
     float flash[6] {};
     float shownEnergy = 0.0f, shownSwell = 0.0f, shownGrains = 0.0f;
     double phase = 0.0;

@@ -82,6 +82,7 @@ void VocalEngine::process(const BlockInfo& info, const VocalParams& p, const Voc
     auto& group = link.group(p.group);
 
     const bool playing = info.playing && info.ppqPerSample > 0.0;
+    gridSynced = playing && p.sync != 0;
     beatSec = info.ppqPerSample > 0.0 ? std::clamp(1.0 / (info.ppqPerSample * sr), 0.15, 3.0) : 0.5;
 
     int cursor = 0, hi = 0;
@@ -147,6 +148,7 @@ void VocalEngine::process(const BlockInfo& info, const VocalParams& p, const Voc
 
             const int bar = int(floorDiv(gs, spb));
             const int step = int(gs - (long long) bar * spb);
+
             if (bar != decidedBar)
             {
                 const bool continuous = decidedBar == bar - 1;
@@ -158,6 +160,17 @@ void VocalEngine::process(const BlockInfo& info, const VocalParams& p, const Voc
             else if (step < spb / 2)
             {
                 follower.refresh(bar, group);
+            }
+            // chmura na siatce (po decyzji o akordzie taktu): na każdej 8-ce / 16-tce tyle ziaren, ile wypada z gęstości
+            if (gridSynced && p.mode == VocalParams::Cloud && step % (p.sync == 1 ? 2 : 1) == 0 && rateNow > 0.0f)
+            {
+                const float perStep = rateNow * float(stepLen * (p.sync == 1 ? 2.0 : 1.0) / info.ppqPerSample / sr);
+                gridCarry += perStep;
+                while (gridCarry >= 1.0f)
+                {
+                    gridCarry -= 1.0f;
+                    spawn(Voice::Cloud, 0, 1.0f, p);
+                }
             }
             ++gs;
         }
@@ -269,8 +282,12 @@ void VocalEngine::render(int from, int to, const VocalParams& p, float* L, float
         scanPhase += p.scan * 0.2f * dt;
         scanPhase -= std::floor(scanPhase);
 
-        // nowe ziarna chmury: akumulator fazy z losowym progiem (mniej zbite niż Poisson)
-        const float perSample = rate / float(sr);
+        if (p.mode == VocalParams::Choir)
+            stepChoir(n, p, swellAmt);
+
+        // nowe ziarna chmury: akumulator fazy z losowym progiem (mniej zbite niż Poisson);
+        // z synchronizacją ziarna startują na siatce tempa (w process), nie tutaj
+        const float perSample = (p.mode == VocalParams::Cloud && ! gridSynced) ? rate / float(sr) : 0.0f;
         if (perSample > 0.0f)
             for (int i = 0; i < n; ++i)
             {
@@ -438,8 +455,18 @@ void VocalEngine::spawn(Voice v, int delay, float velocity, const VocalParams& p
     const float local = s->midiAt(pos);
     const float src = local >= 0.0f ? s->medianMidi + p.retune * (local - s->medianMidi) : s->medianMidi;
     const float target = pickTarget(src, v, p);
-    double ratio = std::pow(2.0, double(target - src) / 12.0) * s->sampleRate / sr;
+    const float overlap = std::max(1.0f, std::max(rateNow, p.density) * float(lenSamples) / float(sr));
+    const float pan = (rand01() * 2.0f - 1.0f) * std::clamp(p.width, 0.0f, 1.0f);
+    emit(s, pos, src, target, lenSamples, 0.9f * velocity / std::sqrt(overlap), pan, rand01() < p.reverse, delay);
+}
 
+void VocalEngine::emit(const VocalSample* s, double pos, float src, float target, int lenSamples, float gain,
+                       float pan, bool reverse, int delay)
+{
+    if (numGrains >= maxGrains)
+        return;
+    const int len = s->length();
+    const double ratio = std::pow(2.0, double(target - src) / 12.0) * s->sampleRate / sr;
     double span = double(lenSamples) * ratio;
     if (span > double(len - 4))
     {
@@ -450,7 +477,7 @@ void VocalEngine::spawn(Voice v, int delay, float velocity, const VocalParams& p
         return;
 
     auto& g = grains[numGrains];
-    if (rand01() < p.reverse)
+    if (reverse)
     {
         g.pos = std::clamp(pos + span, span + 1.0, double(len - 3));
         g.rate = -ratio;
@@ -460,11 +487,7 @@ void VocalEngine::spawn(Voice v, int delay, float velocity, const VocalParams& p
         g.pos = std::clamp(pos, 1.0, std::max(1.0, double(len - 3) - span));
         g.rate = ratio;
     }
-
-    const float overlap = std::max(1.0f, std::max(rateNow, p.density) * float(lenSamples) / float(sr));
-    const float gain = 0.9f * velocity / std::sqrt(overlap);
-    const float pan = (rand01() * 2.0f - 1.0f) * std::clamp(p.width, 0.0f, 1.0f);
-    const float angle = (pan + 1.0f) * pi * 0.25f;
+    const float angle = (std::clamp(pan, -1.0f, 1.0f) + 1.0f) * pi * 0.25f;
     g.s = s;
     g.gen = pool->generation;
     g.len = lenSamples;
@@ -476,6 +499,116 @@ void VocalEngine::spawn(Voice v, int delay, float velocity, const VocalParams& p
     s->grainsSpawned.fetch_add(1, std::memory_order_relaxed);
     ++diagnostics.pitchClass[mod12(int(std::lround(target)))];
     ++diagnostics.spawned;
+}
+
+// ---------------------------------------------------------------- chór
+
+void VocalEngine::retuneChoir(const VocalParams& p)
+{
+    // Ciasny układ akordu: każdy głos dostaje jeden składnik, najbliżej naturalnej
+    // wysokości swojego sampla (najmniej przestrajania = najmniej "chipmunka").
+    const auto ch = follower.chord;
+    const auto sh = shapeOf(ch.quality);
+    const int tones[4] = { 0, sh.third, sh.fifth, sh.seventh >= 0 ? sh.seventh : 12 };
+    for (int v = 0; v < maxVoices; ++v)
+    {
+        auto& vc = voices[v];
+        if (vc.s == nullptr)
+            continue;
+        const float centre = vc.s->medianMidi + 12.0f * float(std::clamp(p.octave, -2, 2)) + (v >= 4 ? 12.0f : 0.0f);
+        const int tone = tones[v % 4];
+        float best = centre;
+        float bestD = 1e9f;
+        for (int m = int(centre) - 12; m <= int(centre) + 12; ++m)
+            if (mod12(m - ch.root) == mod12(tone) && std::abs(float(m) - centre) < bestD)
+            {
+                bestD = std::abs(float(m) - centre);
+                best = float(m);
+            }
+        vc.target = best;
+    }
+    choirRoot = ch.root;
+    choirQuality = ch.quality;
+}
+
+void VocalEngine::assignVoices(const VocalParams& p)
+{
+    // Każdy głos to jeden "śpiewak": stały sampel i własna głowica odczytu.
+    for (int v = 0; v < maxVoices; ++v)
+    {
+        auto& vc = voices[v];
+        bool valid = false;
+        if (vc.s != nullptr && pool != nullptr)
+            for (int i = 0; i < pool->count; ++i)
+                valid = valid || (pool->items[i] == vc.s && vc.s->weight.load(std::memory_order_relaxed) > 0.0f);
+        if (valid && vc.gen != 0)
+            continue;
+        const int si = pickSample(p);
+        vc.s = si >= 0 ? pool->items[si] : nullptr;
+        vc.gen = pool ? pool->generation : 0;
+        if (vc.s != nullptr)
+        {
+            float c = p.position + 0.17f * float(v);
+            vc.pos = double(c - std::floor(c)) * double(vc.s->length() - 1);
+        }
+        vc.timer = int(rand01() * 0.5f * p.grainMs * 0.001f * float(sr)); // głosy nie startują równo
+    }
+    choirGeneration = pool ? pool->generation : 0;
+    retuneChoir(p);
+}
+
+void VocalEngine::stepChoir(int n, const VocalParams& p, float swellAmt)
+{
+    if (pool == nullptr || pool->count == 0 || activity < 0.02f)
+        return;
+    if (pool->generation != choirGeneration)
+        assignVoices(p);
+    if (follower.chord.root != choirRoot || follower.chord.quality != choirQuality)
+        retuneChoir(p);
+
+    const auto sh = shapeOf(follower.chord.quality);
+    // 3 albo 4 głosy (septyma), gęsty hi-hat albo przejście dokłada górny głos (oktawa wyżej)
+    int count = sh.seventh >= 0 ? 4 : 3;
+    if (hatDensityNow * p.hatToDensity > 0.35f || swellAmt > 0.3f)
+        count += 1;
+    const float lenSec = std::clamp(p.grainMs, 40.0f, 1000.0f) / 1000.0f * (1.0f + 0.5f * swellAmt);
+    const int lenSamples = int(lenSec * float(sr));
+    const int hop = std::max(32, lenSamples / 2); // dwa nakładające się ziarna Hanna = równy, ciągły dźwięk
+    // tempo przesuwu głowicy: Skan 0 = 30 % szybkości mowy (rozciągnięty śpiew), 100 % = tempo oryginału
+    const double speed = 0.3 + 0.7 * double(p.scan);
+
+    for (int v = 0; v < count && v < maxVoices; ++v)
+    {
+        auto& vc = voices[v];
+        if (vc.s == nullptr)
+            continue;
+        vc.timer -= n;
+        while (vc.timer <= 0)
+        {
+            const int delay = n + vc.timer;
+            vc.timer += hop;
+            const VocalSample* s = vc.s;
+            const int len = s->length();
+            vc.pos += double(hop) * speed * s->sampleRate / sr;
+            if (vc.pos >= len - 2 || vc.pos < 1.0)
+                vc.pos = vc.pos < 1.0 ? double(len - 2) : 1.0;
+            // spółgłoska / cisza: przeskocz do najbliższego fragmentu z wysokością
+            if (! s->voicedAt(vc.pos) && rand01() < p.voiced)
+                for (int k = 1; k < 400; ++k)
+                {
+                    const double q = std::fmod(vc.pos + double(k * s->hop), double(len - 2));
+                    if (s->voicedAt(q)) { vc.pos = q; break; }
+                }
+            const double jitter = double(p.scatter) * (rand01() - 0.5f) * 0.5 * double(lenSamples);
+            const double at = std::clamp(vc.pos + jitter, 1.0, double(len - 2));
+            const float local = s->midiAt(at);
+            const float src = local >= 0.0f ? s->medianMidi + p.retune * (local - s->medianMidi) : s->medianMidi;
+            const float spreadPan = count > 1 ? (float(v) / float(count - 1)) * 2.0f - 1.0f : 0.0f;
+            emit(s, at, src, voices[v].target, lenSamples, 0.75f / std::sqrt(float(count)),
+                 spreadPan * std::clamp(p.width, 0.0f, 1.0f), rand01() < p.reverse, std::clamp(delay, 0, n - 1));
+        }
+    }
+    rateNow = float(count) * float(sr) / float(hop);
 }
 
 } // namespace sk

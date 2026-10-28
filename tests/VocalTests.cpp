@@ -161,6 +161,15 @@ static void testJamWithPiano(bool withPiano)
     VocalParams vp;
     vp.group = 3;
     vp.retune = 1.0f;
+    // tryb Chmura, swobodnie – tu sprawdzamy reakcję gęstości na bębny
+    vp.mode = VocalParams::Cloud;
+    vp.sync = 0;
+    vp.grainMs = 140.0f;
+    vp.density = 14.0f;
+    vp.scatter = 0.6f;
+    vp.spread = 0.3f;
+    vp.hatToDensity = 0.6f;
+    vp.pulse = 0.3f;
     vp.harmony.key = 0;      // własna harmonia (C) – używana tylko bez Piano
     vp.harmony.progA = 0;
     vp.harmony.progB = 3;
@@ -315,6 +324,91 @@ static void testStoppedTransport()
     CHECK(e2 == 0.0, "pusty piec powinien milczeć: %g", e2);
 }
 
+// Chór: stałe głosy na składnikach akordu, płynny strumień ziaren, tylko kilka wysokości na akord.
+// Chmura z siatką: ziarna startują wyłącznie na ósemkach.
+static void testChoirAndGrid()
+{
+    SharedLink link;
+    link.group(2).pianoHeartbeat.store(0);
+    const double sr = 48000.0, pps = 120.0 / 60.0 / sr;
+    const int block = 128;
+    SamplePool pool;
+    pool.add(makeVocalSample(fakeVocal(sr, 3.0, 207.0, true, 3), sr, "a", ""));
+    pool.add(makeVocalSample(fakeVocal(sr, 3.0, 165.0, false, 4), sr, "b", ""));
+
+    for (int mode : { int(VocalParams::Choir), int(VocalParams::Cloud) })
+    {
+        VocalEngine voc(link);
+        voc.prepare(sr);
+        VocalParams vp;              // ustawienia domyślne
+        vp.group = 2;
+        vp.mode = mode;
+        vp.sync = 1;
+        vp.pulse = 0.0f;
+        vp.harmony.key = 0;
+        vp.harmony.progA = 0;        // I-V-vi-IV w C
+        vp.harmony.valid = true;
+        std::vector<float> L(block), R(block);
+        std::map<int, std::map<int, int>> pitchesInBar;   // takt -> wysokości (klasy) -> liczba
+        int off = 0, on = 0, offGrid = 0, blocks = 0;
+        double energy = 0.0, maxBlockJump = 0.0, prevRms = -1.0, windowE = 0.0;
+        for (double ppq = 0.0; ppq < 16.0; ppq += block * pps, ++blocks)
+        {
+            std::vector<VocalHit> vh;
+            for (double q = std::ceil(ppq / 0.5) * 0.5; q < ppq + block * pps; q += 0.5)
+                vh.push_back({ std::clamp(int((q - ppq) / pps), 0, block - 1), q, 42, 90 });
+            BlockInfo info;
+            info.playing = true;
+            info.ppqStart = ppq;
+            info.ppqPerSample = pps;
+            info.numSamples = block;
+            info.barOrigin = std::floor(ppq / 4.0) * 4.0;
+            voc.diagnostics = {};
+            voc.process(info, vp, vh.data(), int(vh.size()), pool.acquire(), L.data(), R.data());
+            pool.reportInUse(voc.oldestGenerationInUse());
+            const int bar = int(std::floor(ppq / 4.0 + 1e-9));
+            for (int pc = 0; pc < 12; ++pc)
+                if (voc.diagnostics.pitchClass[pc])
+                {
+                    pitchesInBar[bar][pc] += int(voc.diagnostics.pitchClass[pc]);
+                    (isChordTone(mod12(pc - voc.status.chordRoot), uint8_t(voc.status.chordQuality)) ? on : off) += 1;
+                }
+            if (mode == VocalParams::Cloud && voc.diagnostics.spawned > 0)
+            {
+                // blok zawiera granicę ósemki?
+                const double q0 = ppq, q1 = ppq + block * pps;
+                if (std::ceil(q0 / 0.5 - 1e-6) * 0.5 >= q1 + 1e-6)
+                    ++offGrid;
+            }
+            double e = 0.0;
+            for (int i = 0; i < block; ++i) e += double(L[i]) * L[i] + double(R[i]) * R[i];
+            energy += e;
+            // głośność w oknach ok. 21 ms (8 bloków): krótsze okno mierzyłoby fazę fali, nie głośność
+            windowE += e;
+            if (blocks % 8 == 7)
+            {
+                const double rms = std::sqrt(windowE / (8.0 * block));
+                if (bar >= 1 && prevRms > 0.01) maxBlockJump = std::max(maxBlockJump, std::abs(rms - prevRms) / prevRms);
+                prevRms = rms;
+                windowE = 0.0;
+            }
+        }
+        CHECK(off == 0, "tryb %d: ziarna poza akordem: %d", mode, off);
+        CHECK(energy > 1.0, "tryb %d: za cicho (%.3f)", mode, energy);
+        if (mode == VocalParams::Choir)
+        {
+            for (auto& [bar, pcs] : pitchesInBar)
+                CHECK(pcs.size() <= 4, "chór, takt %d: %d różnych wysokości (głosy powinny trzymać akord)", bar, int(pcs.size()));
+            CHECK(maxBlockJump < 0.6, "chór nierówny: skok głośności między oknami %.2f", maxBlockJump);
+        }
+        else
+        {
+            CHECK(offGrid == 0, "chmura z siatką: %d bloków z ziarnami poza ósemkami", offGrid);
+        }
+        std::printf("%s: energia %.1f, maks. skok RMS %.2f\n", mode == VocalParams::Choir ? "chór" : "chmura/ósemki", energy, maxBlockJump);
+    }
+}
+
 int main()
 {
     testPitch();
@@ -322,6 +416,7 @@ int main()
     testJamWithPiano(true);
     testJamWithPiano(false);
     testStoppedTransport();
+    testChoirAndGrid();
     if (failures) { std::printf("%d błędów\n", failures); return 1; }
     std::printf("OK\n");
     return 0;

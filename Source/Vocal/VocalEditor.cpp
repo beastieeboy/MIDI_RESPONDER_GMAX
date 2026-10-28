@@ -174,6 +174,9 @@ VocalEditor::VocalEditor(VocalProcessor& p)
     addAndMakeVisible(playAlwaysToggle);
     playAlwaysAtt = std::make_unique<ButtonAttachment>(proc.apvts, "playAlways", playAlwaysToggle);
 
+    addCombo(modeBox, modeLabel, "mode", "Tryb", modeAtt);
+    addCombo(syncBox, syncLabel, "sync", "Siatka", syncAtt);
+    syncBox.setTooltip(U("Chmura: ziarna startują na ósemkach / szesnastkach tempa"));
     addCombo(keyBox, keyLabel, "key", "Tonacja", keyAtt);
     addCombo(progABox, progALabel, "progA", "Zwrotka", progAAtt);
     addCombo(progBBox, progBLabel, "progB", "Refren", progBAtt);
@@ -334,6 +337,17 @@ void VocalEditor::resized()
 
     auto left = area.removeFromLeft(250);
     beingArea = left.removeFromTop(250);
+    modeArea = left.removeFromBottom(60);
+    {
+        auto m = modeArea;
+        auto r1 = m.removeFromTop(26);
+        modeLabel.setBounds(r1.removeFromLeft(52));
+        modeBox.setBounds(r1);
+        m.removeFromTop(6);
+        auto r2 = m.removeFromTop(26);
+        syncLabel.setBounds(r2.removeFromLeft(52));
+        syncBox.setBounds(r2);
+    }
     statusArea = left.withTrimmedTop(8);
     area.removeFromLeft(16);
 
@@ -417,6 +431,7 @@ void VocalEditor::timerCallback()
     for (auto* c : { &keyBox, &progABox, &progBBox })
         c->setEnabled(! followPiano);
     fillToggle.setEnabled(! followPiano);
+    syncBox.setEnabled(modeBox.getSelectedItemIndex() == 1);
 
     if (shownVersion != proc.poolVersion())
     {

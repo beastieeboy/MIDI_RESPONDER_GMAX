@@ -11,32 +11,35 @@ namespace sk {
 // Ustawienia Wokalu (syntezator granularny pracujący wyłącznie na samplach z pieca).
 struct VocalParams
 {
+    enum Mode { Choir = 0, Cloud = 1 };
+    int mode = Choir;              // Chór: stałe głosy na składnikach akordu; Chmura: rój ziaren
+    int sync = 1;                  // chmura: 0 swobodnie, 1 = ósemki, 2 = szesnastki
     int group = 0;
     HarmonySettings harmony;       // własna harmonia, gdy w zespole nie ma Piano
     DrumMap drums;
 
     // ziarna
-    float grainMs = 140.0f;        // długość ziarna
-    float density = 14.0f;         // ziaren na sekundę (przed reakcją na bębny)
+    float grainMs = 300.0f;        // długość ziarna
+    float density = 8.0f;         // ziaren na sekundę (przed reakcją na bębny)
     float position = 0.3f;         // gdzie w samplu (0..1)
-    float scatter = 0.6f;          // rozrzut pozycji
-    float scan = 0.0f;             // przesuwanie pozycji w czasie (-1..1)
+    float scatter = 0.15f;          // rozrzut pozycji
+    float scan = 0.15f;            // przesuwanie pozycji w czasie (-1..1); w Chórze tempo czytania sampla
     float reverse = 0.0f;          // szansa ziarna od tyłu
     float shape = 0.0f;            // 0 = gładkie (Hann), 1 = perkusyjne
     float width = 0.6f;            // szerokość stereo
 
     // strój i mieszanie
-    float retune = 0.85f;          // 0 = naturalna melodia sampla, 1 = każde ziarno dokładnie na składniku akordu
+    float retune = 1.0f;          // 0 = naturalna melodia sampla, 1 = każde ziarno dokładnie na składniku akordu
     int octave = 0;                // -2..2
-    float spread = 0.3f;           // rozrzut po składnikach akordu i oktawach
-    float voiced = 0.7f;           // preferuj samogłoski (fragmenty z wysokością)
+    float spread = 0.0f;           // rozrzut po składnikach akordu i oktawach
+    float voiced = 0.9f;           // preferuj samogłoski (fragmenty z wysokością)
     float freshness = 0.3f;        // nowsze sample w piecu grają częściej
     float gainDb = 0.0f;
 
     // reakcja na bębny
-    float hatToDensity = 0.6f;     // gęstość hi-hatu -> gęstość ziaren
+    float hatToDensity = 0.3f;     // gęstość hi-hatu -> gęstość ziaren
     float swell = 0.6f;            // przejście na tomach -> puchnięcie chmury
-    float pulse = 0.3f;            // uderzenia bębnów wyzwalają ziarna
+    float pulse = 0.1f;            // uderzenia bębnów wyzwalają ziarna
     float dynamics = 0.6f;         // dynamika bębniarza -> głośność
     float reactivity = 0.6f;
     bool playWithoutDrums = false; // chmura gra także, gdy bębniarz milczy
@@ -96,6 +99,20 @@ private:
     void spawn(Voice v, int delay, float velocity, const VocalParams& p);
     int pickSample(const VocalParams& p);
     float pickTarget(float src, Voice v, const VocalParams& p);
+    void emit(const VocalSample* s, double pos, float src, float target, int lenSamples, float gain, float pan,
+              bool reverse, int delay);
+    void assignVoices(const VocalParams& p);
+    void retuneChoir(const VocalParams& p);
+    void stepChoir(int n, const VocalParams& p, float swellAmt);
+
+    // Chór: każdy głos = jeden "śpiewak" (stały sampel, własna głowica, jeden składnik akordu)
+    static constexpr int maxVoices = 5;
+    struct ChoirVoice { const VocalSample* s = nullptr; uint64_t gen = 0; double pos = 0.0; float target = 60.0f; int timer = 0; };
+    ChoirVoice voices[maxVoices];
+    uint64_t choirGeneration = 0;
+    int choirRoot = -1, choirQuality = -1;
+    bool gridSynced = false;
+    float gridCarry = 0.0f;
     float rand01();
 
     SharedLink& link;
