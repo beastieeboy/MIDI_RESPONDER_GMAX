@@ -16,6 +16,8 @@ jobs:
         run: |
           g++ -std=c++17 -O2 -Wall -Wextra -Werror -o sk_core_tests tests/CoreTests.cpp Source/Core/*.cpp -lrt
           ./sk_core_tests
+          g++ -std=c++17 -O2 -Wall -Wextra -Werror -o sk_guitar_tests tests/GuitarTests.cpp Source/Core/*.cpp -lrt
+          ./sk_guitar_tests
 
   macos:
     runs-on: macos-14   # Apple Silicon
@@ -28,34 +30,45 @@ jobs:
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
                 -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
-                -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+                -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0 \
+                -DSK_BUILD_HOST_TEST=ON
 
       - name: Kompilacja
         run: |
           cmake --build build --config Release --parallel 4 \
-                --target SekcjaKrzemowaPiano_All SekcjaKrzemowaBass_All sk_core_tests
+                --target SekcjaKrzemowaPiano_All SekcjaKrzemowaBass_All SekcjaKrzemowaGitara_All \
+                         sk_core_tests sk_guitar_tests sk_guitar_host_test
 
       - name: Testy rdzenia
-        run: ./build/sk_core_tests
+        run: |
+          ./build/sk_core_tests
+          ./build/sk_guitar_tests
 
       - name: Pakowanie i podpis ad-hoc
         run: |
           set -e
           OUT="dist/Sekcja Krzemowa"
           mkdir -p "$OUT/VST3"
-          for r in Piano Bass; do
+          for r in Piano Bass Gitara; do
             A="build/SekcjaKrzemowa${r}_artefacts/Release"
             cp -R "$A/VST3/Sekcja Krzemowa ${r}.vst3" "$OUT/VST3/"
           done
           find "$OUT" -maxdepth 2 \( -name "*.vst3" \) -exec codesign --force --deep --sign - {} \;
           cp docs/INSTALACJA.txt "$OUT/"
           lipo -info "$OUT/VST3/Sekcja Krzemowa Piano.vst3/Contents/MacOS/Sekcja Krzemowa Piano"
+          lipo -info "$OUT/VST3/Sekcja Krzemowa Gitara.vst3/Contents/MacOS/Sekcja Krzemowa Gitara"
           (cd dist && ditto -c -k --keepParent "Sekcja Krzemowa" SekcjaKrzemowa-macOS.zip)
 
       - uses: actions/upload-artifact@v4
         with:
           name: SekcjaKrzemowa-macOS
           path: dist/SekcjaKrzemowa-macOS.zip
+
+      - name: Test Gitary w hoście (VST3 Piano + Bass + Gitara)
+        run: |
+          V="dist/Sekcja Krzemowa/VST3"
+          ./build/sk_guitar_host_test_artefacts/Release/sk_guitar_host_test \
+            "$V/Sekcja Krzemowa Piano.vst3" "$V/Sekcja Krzemowa Bass.vst3" "$V/Sekcja Krzemowa Gitara.vst3" "$RUNNER_TEMP/gitara"
 
       - name: Wydanie (dla tagów v*)
         if: startsWith(github.ref, 'refs/tags/v')

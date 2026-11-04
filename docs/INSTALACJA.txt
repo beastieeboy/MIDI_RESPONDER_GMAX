@@ -19,10 +19,17 @@ SEKCJA KRZEMOWA – instalacja na macOS (Apple Silicon i Intel)
    -> na dole "Otwórz mimo to".
 
 3. W REAPER: Options -> Preferences -> Plug-ins -> VST -> "Clear cache/re-scan".
-   Wtyczki pojawią się jako "VST3: Sekcja Krzemowa Piano" i
-   "VST3: Sekcja Krzemowa Bass" (producent: Sekcja Krzemowa).
+   Wtyczki pojawią się jako "VST3: Sekcja Krzemowa Piano",
+   "VST3: Sekcja Krzemowa Bass" i "VST3: Sekcja Krzemowa Gitara"
+   (producent: Sekcja Krzemowa).
 
 4. GGD Modern & Massive 2: w panelu "Bębny i wyjście" ustaw Mapa ->
-   "GGD Modern & Massive 2" (w obu wtyczkach).
+   "GGD Modern & Massive 2" (we wszystkich wtyczkach).
+
+5. Gitara: na ścieżce ustaw kolejno "Sekcja Krzemowa Gitara", a za nią
+   Kontakt z Session Guitarist Electric Neon (instrument Melody), tryb Mono.
+   Zakres pitch bend z Kontaktu wpisz w pole "Bend ±". Keyswitche
+   (C1 open, C#1 mute, B1 slajd, A1/G#1 zjazdy) zmienisz w panelu
+   "Kontakt, bębny i wyjście".
 
 Ustawienie projektu – patrz README.md w repozytorium (sekcja "REAPER krok po kroku").

@@ -23,6 +23,7 @@ VARIANTS = {
     "logo":  dict(acc="#a99bff", acc2="#5ee8dc", hi="#f2efff", halo="rhythm"),
     "piano": dict(acc="#ffbe73", acc2="#ff8f6b", hi="#fff4e4", halo="keys"),
     "bass":  dict(acc="#55e6d6", acc2="#4c9dff", hi="#e6fffb", halo="strings"),
+    "gitara": dict(acc="#ff6fae", acc2="#b86bff", hi="#ffe9f4", halo="frets"),
 }
 
 CX, CY, R = 200, 205, 190
@@ -102,6 +103,26 @@ def halo(v, pre):
         for i in (2, 5, 9):  # „wciśnięte” klawisze akordu
             s = a0 + (a1 - a0) * i / n + 0.006; e = a0 + (a1 - a0) * (i + 1) / n - 0.006
             g.append(arcseg(s, e, 164, 174, v["acc"], 1))
+    elif kind == "frets":  # gryf: 6 strun i progi, struna melodii drga, kropka na 12. progu
+        for f in range(13):
+            a = a0 + (a1 - a0) * f / 12
+            g.append(f'<line x1="{CX + 162 * math.cos(a):.1f}" y1="{CY + 162 * math.sin(a):.1f}" '
+                     f'x2="{CX + 188 * math.cos(a):.1f}" y2="{CY + 188 * math.sin(a):.1f}" stroke="#6d7a93" '
+                     f'stroke-width="{2.4 if f in (0, 12) else 1.2}" opacity="0.8" stroke-linecap="round"/>')
+        for j, r in enumerate((165, 170, 175, 180, 185)):
+            d = []
+            for i in range(121):
+                a = a0 + (a1 - a0) * i / 120
+                amp = 2.6 * math.sin(math.pi * i / 120) * math.sin(i * 1.3) if j == 1 else 0
+                rr = r + amp
+                d.append(("M" if i == 0 else "L") + f"{CX + rr * math.cos(a):.1f},{CY + rr * math.sin(a):.1f}")
+            g.append(f'<path d="{" ".join(d)}" fill="none" stroke="{v["acc"] if j == 1 else "#8b97ad"}" '
+                     f'stroke-width="{1.0 + j * 0.3:.2f}" opacity="{1 if j == 1 else 0.7}" stroke-linecap="round"/>')
+        for f in (3, 5, 7, 9):
+            a = a0 + (a1 - a0) * (f - 0.5) / 12
+            g.append(f'<circle cx="{CX + 175 * math.cos(a):.1f}" cy="{CY + 175 * math.sin(a):.1f}" r="2.6" fill="#55607a"/>')
+        a = a0 + (a1 - a0) * 6.5 / 12
+        g.append(f'<circle cx="{CX + 170 * math.cos(a):.1f}" cy="{CY + 170 * math.sin(a):.1f}" r="5.2" fill="{v["acc"]}"/>')
     else:  # 4 struny basu, najniższa drga
         for j, r in enumerate((166, 172, 178, 184)):
             d = []

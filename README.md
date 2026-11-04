@@ -1,6 +1,6 @@
 # Sekcja Krzemowa
 
-Dwie wtyczki MIDI (VST3, macOS Apple Silicon i Intel) dla REAPER-a, które grają
+Wtyczki MIDI (VST3, macOS Apple Silicon i Intel) dla REAPER-a, które grają
 z bębniarzem na żywo:
 
 - **Sekcja Krzemowa Piano** słucha bębnów (stopa, werbel, 2 tomy, hi-hat) i gra
@@ -8,6 +8,11 @@ z bębniarzem na żywo:
   tonację i progresje akordów zwrotki i refrenu.
 - **Sekcja Krzemowa Bass** słucha bębnów **i** instancji Piano. Progresję
   pobiera automatycznie, trzyma się stopy i dopełnia rytm Piano.
+- **Sekcja Krzemowa Gitara** słucha bębnów, Piano **i** Bass i gra popowe
+  melodie i zagrywki gitary prowadzącej na instrumencie Kontakt (domyślnie
+  Session Guitarist **Electric Neon** w trybie Melody): slajdy, bendy,
+  hammer-ony / pull-offy, wibrato i zjazdy na końcu fraz. Szczegóły niżej
+  w sekcji [Gitara](#gitara-kontakt-session-guitarist-electric-neon).
 
 Tempo i metrum pochodzą z projektu REAPER-a (bębniarz gra do klika).
 Wtyczki nie dodają opóźnienia (latencja 0 próbek).
@@ -44,6 +49,82 @@ Uwaga: REAPER domyślnie przetwarza ścieżki „z wyprzedzeniem” (anticipativ
 Ścieżki zasilane z uzbrojonej ścieżki z monitoringiem powinny iść w czasie
 rzeczywistym. Jeśli mimo to usłyszysz opóźnienie reakcji, uzbrój także ścieżki
 Piano i Bass z monitoringiem (wejście MIDI może być dowolne lub żadne).
+
+## Gitara (Kontakt, Session Guitarist Electric Neon)
+
+![Gitara](docs/gui-gitara.png)
+
+**W REAPER-ze:**
+
+1. **Ścieżka „Gitara”**: FX: `Sekcja Krzemowa Gitara` → `Kontakt` z
+   **Electric Neon (Melody)** (w Essentials: instrument z pojedynczymi nutami,
+   nie pattern). Wtyczka Gitara musi stać *przed* Kontaktem.
+2. Na ścieżce Bębny dodaj wysyłkę do Gitary (audio `None`, MIDI `All → All`),
+   tak jak do Piano i Bass.
+3. Gitara musi mieć ten sam **Link** (Zespół) co Piano i Bass. Tonacji i
+   progresji nie ustawia się w Gitarze, tylko w Piano.
+4. W Kontakcie przełącz Electric Neon na **Mono** (płynne przejścia legato)
+   i sprawdź zakres pitch bend instrumentu. Tę samą liczbę półtonów ustaw w
+   polu **Bend ±** (domyślnie 2).
+
+**Artykulacje i keyswitche** (nazwy jak w Kontakcie, C3 = 60, więc C1 = 36):
+
+| Co gra gitara | Jak to wysyła | Electric Neon |
+| --- | --- | --- |
+| zwykła nuta | keyswitch **Open** | C1 (36) |
+| ciche, gęste 16-tki przy spokojnym bębniarzu | keyswitch **Mute** (palm mute) | C#1 (37) |
+| slajd do następnej nuty (skok 2–7 półtonów) | **Slajd** trzymany między nutami + nuty zachodzą | B1 (47) |
+| hammer-on / pull-off (skok do tercji małej) | nuty zachodzą, druga ~40 % ciszej | automatycznie |
+| zjazd na końcu frazy (wysoka nuta w dół, niska w górę) | **Zjazd ↓ / ↑** w chwili końca nuty | A1 (45) / G#1 (44) |
+| bend do dźwięku akordu | nuta o 2 półtony niżej + pitch bend w górę | pitch wheel |
+| wibrato na długich nutach | CC1 (mod wheel) narasta od połowy nuty | mod wheel |
+
+Każdy keyswitch można zmienić w panelu **Kontakt, bębny i wyjście**. Z innym
+instrumentem wybierz **Instrument → Ogólny**: wtedy idą tylko nuty, pitch bend
+i CC1, a slajdy zastępuje legato. Melodia nigdy nie schodzi do strefy
+keyswitchy (pole **Najniższa**, domyślnie E3 = 52).
+
+Uwaga: mapa keyswitchy pochodzi z instrukcji pełnej wersji Electric Neon
+(Melody). Instrukcja Essentials nie podaje osobnej mapy, więc jeśli Twoja
+wersja ma inne klawisze, sprawdź je na klawiaturze Kontaktu (kolorowe
+klawisze) i przestaw pola we wtyczce.
+
+**Jak gra Gitara:**
+
+- Myśli **frazami po dwa takty**. W roli **Hook** pierwsza fraza sekcji to
+  motyw, który wraca co cztery takty (tak zapamiętuje się melodię), a co drugą
+  frazę gra odpowiedź. Gałka **Wariacje** decyduje, jak często motyw się zmienia.
+- **Wypełnienia**: dwa takty ciszy, dwa takty gry (miejsce dla wokalu).
+  **Solo**: frazy bez przerw, wyższa energia i więcej ozdobników.
+- Każdą nutę przenosi na akord bieżącego taktu z gwarancją braku zgrzytów:
+  tylko składniki akordu albo dźwięki skali, które nie leżą półton od żadnego
+  składnika (`remapInterval`, ta sama reguła co w Piano i Bass). Test jamu
+  sprawdza co 1/32 nuty, że gitara nie tworzy sekundy małej ani nony małej
+  z żadną nutą Piano i Bass.
+- **Miejsce** (dla Piano): wybiera frazy, które trafiają w pauzy rytmu Piano
+  i rzadziej w nuty basu.
+- **Ozdobniki**: ile slajdów, bendów, hammer-onów, wibrata i zjazdów.
+- Gdy bębniarz gra przejście, gitara nie zaczyna nowych nut. Po przejściu
+  (zmiana zwrotka ↔ refren) zaczyna motyw nowej sekcji.
+
+**Biblioteka melodii.** `Source/Core/GuitarPhraseData.h` generuje
+`tools/extract_guitar.py` z **POP909**: 909 popularnych piosenek pop, ścieżka
+MELODY (linia wokalu, czyli właściwe melodie zwrotek i refrenów) i BRIDGE
+(instrumentalne kontrmelodie i wstawki, najbardziej „gitarowy” materiał).
+Wybrano 630 dwutaktowych fraz z jednym akordem w takcie, z pierwszeństwem dla
+fraz powtarzanych w piosence (hooki refrenów), plus 12 ręcznie napisanych
+idiomów popowej gitary (pentatonika, seksty, zawieszenia, ósemki „na delay”).
+Opcja `--lakh` dodaje frazy z prawdziwych ścieżek gitary prowadzącej z Lakh
+MIDI (filtr artystów pop). To materiał chroniony prawem autorskim, więc tylko
+do użytku prywatnego.
+
+```bash
+python3 tools/extract_guitar.py --pop909 POP909-Dataset/POP909 [--lakh ~/lmd/clean_midi]
+```
+
+**Brak pętli sprzężenia zwrotnego.** Gitara tylko słucha: czyta z linku
+harmonię, decyzję taktu, rytm i energię Piano oraz rytm Bass, a sama nic nie
+publikuje. Piano i Bass grają tak samo z Gitarą i bez niej.
 
 ## Jak gra
 
@@ -143,6 +224,7 @@ samo.
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DSK_COPY_PLUGINS=ON
 cmake --build build --config Release --parallel
 ./build/sk_core_tests
+./build/sk_guitar_tests
 ```
 
 Opcja `-DSK_BUILD_HOST_TEST=ON` buduje dodatkowo test ładujący VST3 w hoście
@@ -151,10 +233,11 @@ JUCE i narzędzie do zrzutów ekranu edytora.
 ## Struktura
 
 ```
-Source/Core/     rdzeń bez JUCE: Engine, DrumAnalyzer, Harmony, SharedLink, biblioteka licków
-Source/Plugin/   procesor i edytor JUCE (wspólny kod, rola z SK_ROLE_BASS)
+Source/Core/     rdzeń bez JUCE: Engine, GuitarEngine, DrumAnalyzer, Harmony, SharedLink, biblioteki licków i fraz
+Source/Plugin/   procesor i edytor JUCE Piano/Bass (wspólny kod, rola z SK_ROLE_BASS)
+Source/Guitar/   procesor i edytor JUCE Gitary
 Resources/       grafiki istot krzemowych (SVG)
-tools/           ekstrakcja licków, generator grafik
+tools/           ekstrakcja licków i fraz gitary, generator grafik
 tests/           testy rdzenia (symulacja jamu), test w hoście, zrzuty GUI
 ```
 
