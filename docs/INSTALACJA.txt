@@ -15,6 +15,11 @@ SEKCJA KRZEMOWA – instalacja na macOS (Apple Silicon i Intel)
 
    xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/Sekcja\ Krzemowa*.vst3
 
+   Jeśli trzymasz wtyczki w systemowej Bibliotece (Macintosh HD -> Biblioteki ->
+   Audio -> Plug-Ins -> VST3, czyli /Library, nie ~/Library), użyj:
+
+   sudo xattr -dr com.apple.quarantine /Library/Audio/Plug-Ins/VST3/Sekcja\ Krzemowa*.vst3
+
    Jeśli macOS nadal blokuje: Ustawienia systemowe -> Prywatność i ochrona
    -> na dole "Otwórz mimo to".
 
