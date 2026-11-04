@@ -60,8 +60,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout GuitarProcessor::createLayou
             [](float v, int) { return (v > 0 ? "+" : "") + String(roundToInt(v * 100.0f)) + " %"; })));
 
     l.add(std::make_unique<AudioParameterChoice>(ParameterID { "role", 1 }, "Rola gitary",
-        StringArray { U("Hook: motyw i odpowiedź"), U("Wypełnienia (miejsce dla wokalu)"), "Solo" }, 0));
-    l.add(std::make_unique<AudioParameterFloat>(ParameterID { "ornaments", 1 }, U("Ozdobniki"), NormalisableRange<float>(0.0f, 1.0f), 0.55f, pct));
+        StringArray { U("Melodia (linie wokalne POP909)"), U("Wypełnienia (kontrmelodie)"), "Solo" }, 0));
+    l.add(std::make_unique<AudioParameterFloat>(ParameterID { "ornaments", 1 }, U("Ozdobniki"), NormalisableRange<float>(0.0f, 1.0f), 0.35f, pct));
     l.add(std::make_unique<AudioParameterFloat>(ParameterID { "space", 1 }, U("Miejsce dla Piano"), NormalisableRange<float>(0.0f, 1.0f), 0.6f, pct));
     l.add(std::make_unique<AudioParameterInt>(ParameterID { "register", 1 }, "Rejestr", 60, 84, 72));
     l.add(std::make_unique<AudioParameterInt>(ParameterID { "lowest", 1 }, U("Najniższa nuta"), 40, 72, 52));

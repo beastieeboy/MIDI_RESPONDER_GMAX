@@ -31,10 +31,10 @@ struct GuitarParams
     DrumMap drums;
     HarmonySettings harmony;   // zapas, gdy w zespole nie ma Piano
 
-    int role = 0;              // 0 hook (motyw + odpowiedź), 1 wypełnienia (miejsce dla wokalu), 2 solo
+    int role = 0;              // 0 melodia (MELODY), 1 wypełnienia (kontrmelodie BRIDGE), 2 solo
     int registerCenter = 72;   // środek rejestru frazy (nuta MIDI)
     int lowest = 52, highest = 88;
-    float ornaments = 0.5f;    // ile slajdów, bendów, hammer-onów, wibrata i zjazdów
+    float ornaments = 0.35f;   // ile slajdów, bendów, hammer-onów, wibrata i zjazdów
     float space = 0.6f;        // jak mocno omijać rytm Piano
     GuitarArticulations art;
 };
@@ -42,8 +42,9 @@ struct GuitarParams
 struct GuitarStatus
 {
     std::atomic<int> chordRoot { 0 }, chordQuality { 0 }, section { 0 }, chordPos { 0 };
-    std::atomic<int> bar { -1 }, phrase { -1 }, phraseSource { 0 };
-    std::atomic<int> mode { 0 };   // 0 czeka, 1 motyw, 2 odpowiedź, 3 miejsce (pauza), 4 przejście bębniarza
+    std::atomic<int> bar { -1 }, phrase { -1 }, phraseSource { 0 }, phraseBar { 0 }, phraseSong { 0 };
+    std::atomic<int> mode { 0 };   // 0 czeka, 1 melodia zwrotki, 2 melodia refrenu, 3 czeka na frazę, 4 przejście
+    std::atomic<float> phraseFit { 0.0f }; // jak dobrze akordy pasażu pasują do progresji (0..1)
     std::atomic<int> lastPitch { -1 };
     std::atomic<int> slides { 0 }, bends { 0 }, legatos { 0 }, falls { 0 };
     std::atomic<float> energy { 0.0f };
@@ -75,8 +76,10 @@ private:
 
     void decideBar(int bar, const BlockInfo& info, const GuitarParams& p);
     void resolveHarmony(int bar, const BarFeatures& f, const GuitarParams& p, bool continuous);
-    int choosePhrase(float target, bool motif, const GuitarParams& p);
-    void buildBar(const GuitarParams& p, int spb, bool accent, bool newShift);
+    int choosePassage(float target, int pos0, const GuitarParams& p);
+    float harmonicFit(const Passage& ps, int pos0) const;
+    void chooseShift(const GuitarParams& p);
+    void buildBar(const GuitarParams& p, int spb, bool accent);
     void scheduleNote(const Planned& n, double t, double stepLen, const GuitarParams& p);
     void push(double ppq, uint8_t status, uint8_t d1, uint8_t d2);
     void flush(const BlockInfo& info, double until, MidiOutBuffer& out);
@@ -85,7 +88,7 @@ private:
     float rand01();
 
     SharedLink& link;
-    const PhraseSet* set = nullptr;
+    const PassageSet* set = nullptr;
     DrumAnalyzer drums;
 
     bool wasPlaying = false;
@@ -99,9 +102,9 @@ private:
     bool sectionChanged = false;
     bool pianoAlive = false, bassAlive = false;
 
-    // fraza
-    int phrase = -1, phraseSlot = -1, phraseHalf = 0, phraseShift = 0;
-    int motif[2] = { -1, -1 };
+    // pasaż (8 taktów melodii z jednej piosenki)
+    int passage = -1, passageStart = 0, passageBar = 0, passageShift = 0;
+    int sectionPassage[2] = { -1, -1 }, sectionShift[2] = { 0, 0 };
     int recent[6] = { -1, -1, -1, -1, -1, -1 };
     int lastPitch = -1;
     int currentArt = -1;

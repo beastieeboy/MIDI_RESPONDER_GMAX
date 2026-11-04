@@ -18,14 +18,15 @@ static int failures = 0;
 
 struct Span { double on, off; int pitch; };
 
-static std::vector<DrumHit> drummer(int bars)
+// fills = false: zapętlony jeden pattern (bez przejść, ta sama głośność).
+static std::vector<DrumHit> drummer(int bars, bool fills = true)
 {
     std::vector<DrumHit> h;
     for (int b = 0; b < bars; ++b)
     {
         const double o = b * 4.0;
-        const bool loud = b >= 8;
-        const bool fill = b == 7;
+        const bool loud = fills && b >= 8;
+        const bool fill = fills && b == 7;
         for (int s = 0; s < 16; s += loud ? 1 : 2)
             if (! (fill && s >= 8)) h.push_back({ o + s * 0.25 + 0.004, 42, loud ? 100 : 70 });
         h.push_back({ o - 0.003, 36, 110 });
@@ -35,7 +36,7 @@ static std::vector<DrumHit> drummer(int bars)
         if (! fill) h.push_back({ o + 3.006, 38, loud ? 120 : 85 });
         if (fill)
             for (int s = 8; s < 16; ++s) h.push_back({ o + s * 0.25, s < 12 ? 48 : 45, 100 });
-        if (b == 8) h.push_back({ o, 49, 120 });
+        if (fills && b == 8) h.push_back({ o, 49, 120 });
     }
     std::sort(h.begin(), h.end(), [](auto& a, auto& b) { return a.ppq < b.ppq; });
     return h;
@@ -43,26 +44,31 @@ static std::vector<DrumHit> drummer(int bars)
 
 static void testLibrary()
 {
-    const auto& s = guitarPhrases();
-    CHECK(s.count > 300, "za mało fraz: %d", s.count);
+    const auto& s = guitarPassages();
+    CHECK(s.count > 500, "za mało pasaży: %d", s.count);
     CHECK(s.maxEnergy > s.minEnergy, "brak rozrzutu energii");
-    int idioms = 0, hooks = 0;
+    int bridge = 0, repeated = 0;
     for (int i = 0; i < s.count; ++i)
     {
-        const auto& ph = s.phrases[i];
-        idioms += ph.source == 2;
-        hooks += ph.repeats > 1;
-        CHECK(ph.count >= 2, "pusta fraza %d", i);
-        for (int k = 0; k < ph.count; ++k)
+        const auto& ps = s.passages[i];
+        bridge += ps.source == 1;
+        repeated += ps.repeats > 1;
+        CHECK(ps.count >= 12, "za krótki pasaż %d", i);
+        for (int k = 0; k < 8; ++k)
+            CHECK(ps.chords[k].semis >= 0 && ps.chords[k].semis < 12 && ps.chords[k].quality <= Sus, "zły akord pasażu %d", i);
+        for (int k = 0; k < ps.count; ++k)
         {
-            const auto& n = s.notes[ph.first + k];
-            const int barEnd = n.step < 16 ? 16 : 32;
-            CHECK(n.step < 32 && n.len >= 1 && n.step + n.len <= barEnd, "zła nuta frazy %d", i);
-            CHECK(k == 0 || s.notes[ph.first + k - 1].step < n.step, "fraza %d nie jest monofoniczna", i);
+            const auto& n = s.notes[ps.first + k];
+            CHECK(n.bar < 8 && n.step < 16 && n.len >= 1 && n.step + n.len <= 16, "zła nuta pasażu %d", i);
+            if (k > 0)
+            {
+                const auto& m = s.notes[ps.first + k - 1];
+                CHECK(m.bar * 16 + m.step < n.bar * 16 + n.step, "pasaż %d nie jest monofoniczny", i);
+            }
         }
     }
-    CHECK(idioms >= 10, "brak idiomów gitarowych");
-    CHECK(hooks > 50, "za mało hooków (fraz powtarzanych w piosence): %d", hooks);
+    CHECK(bridge > 100 && bridge < s.count, "brak podziału MELODY / BRIDGE: %d", bridge);
+    CHECK(repeated > 20, "za mało powtarzanych pasaży (refrenów): %d", repeated);
 }
 
 struct JamResult
@@ -70,13 +76,13 @@ struct JamResult
     std::vector<Span> guitar, piano, bass, keyswitch;
     std::vector<std::pair<double, int>> bends;       // (ppq, wartość 14-bit)
     std::vector<std::pair<double, MidiOut>> raw;      // wszystkie zdarzenia gitary (do zrzutu)
-    std::map<int, int> pianoChord, guitarChord, guitarPhrase, pianoSection;
+    std::map<int, int> pianoChord, guitarChord, guitarPhrase, guitarSource, pianoSection, guitarSection;
     int unbalanced = 0;
     int ccVibrato = 0;
     GuitarParams gp;
 };
 
-static JamResult jam(GuitarParams gp, bool withPiano, int bars = 20, uint32_t seedBlocks = 0)
+static JamResult jam(GuitarParams gp, bool withPiano, int bars = 20, bool fills = true, int formBars = 0)
 {
     JamResult r;
     r.gp = gp;
@@ -92,6 +98,7 @@ static JamResult jam(GuitarParams gp, bool withPiano, int bars = 20, uint32_t se
     pp.harmony.progA = 1;    // vi-IV-I-V
     pp.harmony.progB = 0;    // I-V-vi-IV
     pp.harmony.valid = true;
+    pp.harmony.formBars = formBars;
     bp.harmony = {};
     if (withPiano) piano.heartbeat(pp);
     bass.heartbeat(bp);
@@ -99,11 +106,11 @@ static JamResult jam(GuitarParams gp, bool withPiano, int bars = 20, uint32_t se
 
     const double sr = 48000.0, pps = 2.0 / sr;
     const int block = 128;
-    const auto hits = drummer(bars);
+    const auto hits = drummer(bars, fills);
     std::map<int, double> openG, openP, openB;
     size_t hi = 0;
     double ppq = 0.0;
-    int blocks = int(seedBlocks);
+    int blocks = 0;
 
     auto collect = [&](const MidiOutBuffer& out, std::map<int, double>& open, std::vector<Span>& dst, bool isGuitar)
     {
@@ -168,6 +175,8 @@ static JamResult jam(GuitarParams gp, bool withPiano, int bars = 20, uint32_t se
                 collect(out, openG, r.guitar, true);
                 r.guitarChord[guitar.status.bar] = guitar.status.chordRoot * 16 + guitar.status.chordQuality;
                 r.guitarPhrase[guitar.status.bar] = guitar.status.phrase;
+                r.guitarSource[guitar.status.bar] = guitar.status.phrase >= 0 ? guitar.status.phraseSource.load() : -1;
+                r.guitarSection[guitar.status.bar] = guitar.status.section;
             }
         }
         if (blocks % 200 == 0)
@@ -204,6 +213,21 @@ static int soundingAt(const JamResult& r, const Span& s, double t)
             bend = v;
     if (bend == 0) return s.pitch;
     return s.pitch + int(std::lround(double(bend - 8192) / 8191.0 * r.gp.art.bendRange));
+}
+
+static void dump(const JamResult& r, const char* env)
+{
+    if (const char* path = std::getenv(env))
+        if (FILE* f = std::fopen(path, "w"))
+        {
+            for (auto& s : r.piano) std::fprintf(f, "P %.5f %.5f %d\n", s.on, s.off, s.pitch);
+            for (auto& s : r.bass) std::fprintf(f, "B %.5f %.5f %d\n", s.on, s.off, s.pitch);
+            for (auto& s : r.guitar) std::fprintf(f, "G %.5f %.5f %d\n", s.on, s.off, s.pitch);
+            for (auto& s : r.keyswitch) std::fprintf(f, "K %.5f %.5f %d\n", s.on, s.off, s.pitch);
+            for (auto& [t, v] : r.bends) std::fprintf(f, "W %.5f %d\n", t, v);
+            for (auto& [t, m] : r.raw) std::fprintf(f, "R %.5f %d %d %d\n", t, m.status, m.data1, m.data2);
+            std::fclose(f);
+        }
 }
 
 static void testJamWithSection()
@@ -278,43 +302,49 @@ static void testJamWithSection()
     // w przejściu bębniarza (2. połowa taktu 7) gitara nie zaczyna nowych nut
     for (auto& g : r.guitar) CHECK(! (g.on > 7 * 4 + 2.1 && g.on < 8 * 4 - 0.1), "gitara wchodzi w przejście %.2f", g.on);
 
-    // hook: przy wariacjach 0 motyw sekcji wraca co 4 takty
+    // Melodia refrenu to jeden 8-taktowy pasaż z jednej piosenki, który wraca po 8 taktach.
     const int refrain = 8;
-    CHECK(r.guitarPhrase.at(refrain) >= 0 && r.guitarPhrase.at(refrain) == r.guitarPhrase.at(refrain + 4),
-          "hook refrenu nie wrócił: %d vs %d", r.guitarPhrase.at(refrain), r.guitarPhrase.at(refrain + 4));
-    CHECK(r.guitarPhrase.at(refrain) != r.guitarPhrase.at(refrain + 2), "odpowiedź = motyw (%d)", r.guitarPhrase.at(refrain + 2));
+    CHECK(r.guitarPhrase.at(refrain) >= 0, "brak melodii refrenu");
+    for (int b = refrain; b < refrain + 8; ++b)
+        CHECK(r.guitarPhrase.at(b) == r.guitarPhrase.at(refrain), "refren miesza pasaże w takcie %d", b);
+    CHECK(r.guitarPhrase.at(refrain + 8) == r.guitarPhrase.at(refrain), "melodia refrenu nie wróciła: %d vs %d",
+          r.guitarPhrase.at(refrain), r.guitarPhrase.at(refrain + 8));
+    CHECK(r.guitarPhrase.at(4) >= 0 && r.guitarPhrase.at(4) != r.guitarPhrase.at(refrain), "zwrotka = refren");
+
+    // Płynna linia: w obrębie frazy średni skok to krok, nie skakanie po oktawach.
+    double jump = 0.0;
+    int pairs = 0;
+    for (size_t i = 1; i < r.guitar.size(); ++i)
+        if (r.guitar[i].on - r.guitar[i - 1].on < 1.01)
+        {
+            jump += std::abs(r.guitar[i].pitch - r.guitar[i - 1].pitch);
+            ++pairs;
+        }
+    CHECK(pairs > 20 && jump / pairs < 4.0, "linia skacze: średnio %.2f półtonu", pairs ? jump / pairs : 0.0);
+    std::printf("średni skok melodii: %.2f półtonu\n", pairs ? jump / pairs : 0.0);
 
     std::printf("gitara: %d nut, keyswitchy: %d, bendów: %d, legato: %d, porównań harmonii: %d\n",
                 int(r.guitar.size()), int(r.keyswitch.size()), int(r.bends.size()), legato, checks);
 
-    if (const char* path = std::getenv("SK_DUMP"))
-        if (FILE* f = std::fopen(path, "w"))
-        {
-            for (auto& s : r.piano) std::fprintf(f, "P %.5f %.5f %d\n", s.on, s.off, s.pitch);
-            for (auto& s : r.bass) std::fprintf(f, "B %.5f %.5f %d\n", s.on, s.off, s.pitch);
-            for (auto& s : r.guitar) std::fprintf(f, "G %.5f %.5f %d\n", s.on, s.off, s.pitch);
-            for (auto& s : r.keyswitch) std::fprintf(f, "K %.5f %.5f %d\n", s.on, s.off, s.pitch);
-            for (auto& [t, v] : r.bends) std::fprintf(f, "W %.5f %d\n", t, v);
-            for (auto& [t, m] : r.raw) std::fprintf(f, "R %.5f %d %d %d\n", t, m.status, m.data1, m.data2);
-            std::fclose(f);
-        }
+    dump(r, "SK_DUMP");
 }
 
 static void testModes()
 {
-    // Wypełnienia: gitara gra tylko w co drugiej frazie (2 takty ciszy, 2 takty gry)
+    // Wypełnienia: tylko kontrmelodie instrumentalne (BRIDGE)
     GuitarParams gp;
     gp.group = 2;
     gp.role = 1;
     const auto r = jam(gp, true, 16);
-    std::set<int> barsWithNotes;
-    for (auto& g : r.guitar) barsWithNotes.insert(int(std::floor(g.on / 4.0)));
-    for (int b : barsWithNotes)
-    {
-        const int pos = b >= 8 ? b - 8 : b; // refren od taktu 8
-        CHECK(((pos >> 1) & 1) == 1, "wypełnienia: nuta w takcie motywu %d", b);
-    }
-    CHECK(barsWithNotes.size() >= 4, "wypełnienia grają za mało taktów: %d", int(barsWithNotes.size()));
+    int played = 0;
+    for (auto& [bar, src] : r.guitarSource)
+        if (src >= 0)
+        {
+            ++played;
+            CHECK(src == 1, "wypełnienia: pasaż spoza BRIDGE w takcie %d", bar);
+        }
+    CHECK(played >= 8, "wypełnienia grają za mało taktów: %d", played);
+    CHECK(r.guitar.size() > 10, "wypełnienia: za mało nut %d", int(r.guitar.size()));
 
     // Ogólny instrument: bez keyswitchy, ale z nutami
     GuitarParams gen;
@@ -336,11 +366,42 @@ static void testModes()
     CHECK(s.guitar.size() > h.guitar.size(), "solo nie jest gęstsze od hooka: %d vs %d", int(s.guitar.size()), int(h.guitar.size()));
 }
 
+// Zapętlony jeden pattern perkusji: forma automatyczna co 8 taktów (zwrotka, refren, zwrotka...).
+static void testAutoForm()
+{
+    GuitarParams gp;
+    gp.group = 3;
+    gp.variation = 0.0f;
+    const auto r = jam(gp, true, 26, false, 8);
+    for (int b : { 1, 7, 8, 15, 16, 24 })
+    {
+        const int want = (b / 8) & 1;
+        CHECK(r.pianoSection.count(b) && r.pianoSection.at(b) == want, "piano: takt %d sekcja %d", b, r.pianoSection.count(b) ? r.pianoSection.at(b) : -1);
+        CHECK(r.guitarSection.count(b) && r.guitarSection.at(b) == want, "gitara: takt %d sekcja %d", b, r.guitarSection.count(b) ? r.guitarSection.at(b) : -1);
+    }
+    CHECK(r.guitarPhrase.at(4) >= 0 && r.guitarPhrase.at(8) >= 0, "gitara nie gra przy zapętlonym bębnie");
+    CHECK(r.guitarPhrase.at(8) != r.guitarPhrase.at(4), "refren gra melodię zwrotki");
+    CHECK(r.guitarPhrase.at(16) == r.guitarPhrase.at(4), "druga zwrotka bez melodii pierwszej: %d vs %d",
+          r.guitarPhrase.at(16), r.guitarPhrase.at(4));
+    CHECK(r.guitarPhrase.at(24) == r.guitarPhrase.at(8), "drugi refren bez melodii pierwszego");
+    int agree = 0;
+    for (auto& [bar, c] : r.pianoChord)
+        if (bar >= 1 && r.guitarChord.count(bar))
+        {
+            CHECK(r.guitarChord.at(bar) == c, "forma: takt %d piano %d gitara %d", bar, c, r.guitarChord.at(bar));
+            ++agree;
+        }
+    CHECK(agree >= 24, "forma: za mało wspólnych taktów %d", agree);
+    CHECK(r.unbalanced == 0, "forma: podwójne note-on");
+    dump(r, "SK_DUMP_FORM");
+}
+
 int main()
 {
     testLibrary();
     testJamWithSection();
     testModes();
+    testAutoForm();
     if (failures) { std::printf("%d błędów\n", failures); return 1; }
     std::printf("OK\n");
     return 0;

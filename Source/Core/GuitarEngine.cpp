@@ -31,24 +31,24 @@ namespace {
     constexpr double fallLength = 0.2; // ile trwa zjazd po keyswitchu A1
 }
 
-const PhraseSet& guitarPhrases()
+const PassageSet& guitarPassages()
 {
-    static const PhraseSet s = []
+    static const PassageSet s = []
     {
         float lo = 1.0f, hi = 0.0f;
-        for (const auto& p : data::guitarPhrases)
+        for (const auto& p : data::guitarPassages)
         {
             lo = std::min(lo, p.energy);
             hi = std::max(hi, p.energy);
         }
-        return PhraseSet { data::guitarPhrases, data::guitarNotes, data::guitarPhraseCount, lo, hi };
+        return PassageSet { data::guitarPassages, data::guitarNotes, data::guitarPassageCount, lo, hi };
     }();
     return s;
 }
 
 GuitarEngine::GuitarEngine(SharedLink& l) : link(l)
 {
-    set = &guitarPhrases(); // inicjalizacja poza wątkiem audio
+    set = &guitarPassages(); // inicjalizacja poza wątkiem audio
 }
 
 void GuitarEngine::prepare()
@@ -59,9 +59,8 @@ void GuitarEngine::prepare()
     numPlanned = 0;
     queued = 0;
     numSounding = 0;
-    phrase = -1;
-    phraseSlot = -1;
-    motif[0] = motif[1] = -1;
+    passage = -1;
+    sectionPassage[0] = sectionPassage[1] = -1;
     currentArt = -1;
     lastPitch = -1;
     playingBar = false;
@@ -156,7 +155,7 @@ void GuitarEngine::allOff(const GuitarParams&, MidiOutBuffer& out)
     queued = 0;
     currentArt = -1;
     playingBar = false;
-    phrase = -1;
+    passage = -1;
 }
 
 void GuitarEngine::process(const BlockInfo& info, const GuitarParams& p, const DrumHit* hits, int numHits, MidiOutBuffer& out)
@@ -233,14 +232,13 @@ void GuitarEngine::process(const BlockInfo& info, const GuitarParams& p, const D
             if (pbBar == bar && pb != usedPianoBar)
             {
                 usedPianoBar = pb;
-                const int len = std::max<int>(1, prog(section ? harmony.progB : harmony.progA).length);
-                if (pbSec != section || pbPos != chordPos % len)
+                if (pbSec != section || pbPos != chordPos % 240)
                 {
                     section = pbSec;
                     chordPos = pbPos;
                     sectionStart = bar - pbPos;
                     chord = chordFor(harmony.key, section ? harmony.progB : harmony.progA, chordPos);
-                    buildBar(p, spb, false, false);
+                    buildBar(p, spb, false);
                 }
             }
         }
@@ -282,18 +280,15 @@ void GuitarEngine::resolveHarmony(int bar, const BarFeatures& f, const GuitarPar
         // Piano jeszcze nie zdecydowało: ta sama reguła na tych samych bębnach.
         section = pbSec;
         sectionStart = bar - 1 - pbPos;
-        if (f.fill && harmony.fillSwitchesSection)
+        if (harmony.switchesAt(bar, sectionStart, f.fill))
         {
             section ^= 1;
             sectionStart = bar;
         }
     }
     else if (! continuous)
-    {
-        section = 0;
-        sectionStart = 0;
-    }
-    else if (f.fill && harmony.fillSwitchesSection)
+        harmony.sectionAtStart(bar, section, sectionStart);
+    else if (harmony.switchesAt(bar, sectionStart, f.fill))
     {
         section ^= 1;
         sectionStart = bar;
@@ -314,55 +309,41 @@ void GuitarEngine::decideBar(int bar, const BlockInfo& info, const GuitarParams&
     decidedBar = bar;
     numPlanned = 0;
     playingBar = false;
-    if (! continuous || sectionChanged)
-    {
-        phrase = -1;
-        phraseSlot = -1;
-    }
 
     const int pos = bar - sectionStart;
-    const int half = pos & 1, slot = pos >> 1;
     int mode = 0;
 
     if (drums.silent() >= 1)
-    {
-        phrase = -1; // bębniarz milczy – gitara też
-        phraseSlot = -1;
-    }
+        passage = -1; // bębniarz milczy – gitara też
     else
     {
-        float target = drums.energy() + 0.25f * p.density + (p.role == 2 ? 0.25f : 0.0f) + (section == 1 ? 0.08f : 0.0f);
+        // Energia: bębniarz + Piano, refren pełniej, a w sekcji lekko narasta.
+        float target = drums.energy() + 0.25f * p.density + (p.role == 2 ? 0.2f : 0.0f)
+                     + (section == 1 ? 0.12f : 0.0f) + 0.01f * float(std::min(pos, 8));
         if (pianoAlive)
             target = 0.8f * target + 0.2f * float(link.group(p.group).pianoEnergy.load(std::memory_order_relaxed)) / 1000.0f;
         barTarget = std::clamp(target, 0.0f, 1.0f);
 
-        const bool motifSlot = p.role != 2 && slot % 2 == 0;
-        if (half == 0)
-        {
-            if (p.role == 1 && motifSlot)
-            {
-                phrase = -1; // wypełnienia: dwa takty miejsca (np. dla wokalu), dwa takty gitary
-                phraseSlot = -1;
-                mode = 3;
-            }
-            else
-            {
-                phrase = choosePhrase(barTarget, motifSlot && p.role == 0, p);
-                phraseSlot = slot;
-                mode = motifSlot && p.role == 0 ? 1 : 2;
-            }
-        }
-        else if (phrase >= 0 && phraseSlot == slot)
-            mode = (p.role == 0 && slot % 2 == 0) ? 1 : 2;
-        else
-            mode = 3; // dołączamy w połowie frazy – czekamy na początek następnej
+        if (! continuous || sectionChanged || bar < passageStart || bar - passageStart >= 8)
+            passage = -1;
 
-        if (phrase >= 0 && phraseSlot == slot)
+        if (passage < 0 && pos % 4 == 0)
         {
-            phraseHalf = half;
-            buildBar(p, spb, sectionChanged && half == 0, half == 0);
-            playingBar = numPlanned > 0;
+            // Pasaż zaczyna się z frazą sekcji (co 4 takty), w takcie zgodnym z formą 8-taktową.
+            const int pos0 = pos - pos % 8;
+            passage = choosePassage(barTarget, pos0, p);
+            passageStart = bar - pos % 8;
         }
+
+        if (passage >= 0)
+        {
+            passageBar = bar - passageStart;
+            buildBar(p, spb, sectionChanged);
+            playingBar = numPlanned > 0;
+            mode = section == 1 ? 2 : 1;
+        }
+        else
+            mode = 3;
     }
 
     status.mode = mode;
@@ -371,136 +352,208 @@ void GuitarEngine::decideBar(int bar, const BlockInfo& info, const GuitarParams&
     status.chordPos = chordPos % std::max<int>(1, prog(section ? harmony.progB : harmony.progA).length);
     status.chordRoot = chord.root;
     status.chordQuality = chord.quality;
-    status.phrase = playingBar ? phrase : -1;
-    status.phraseSource = phrase >= 0 ? set->phrases[phrase].source : 0;
+    status.phrase = passage;
+    status.phraseBar = passageBar;
+    if (passage >= 0)
+    {
+        status.phraseSource = set->passages[passage].source;
+        status.phraseSong = set->passages[passage].song;
+    }
 }
 
-int GuitarEngine::choosePhrase(float target, bool motifWanted, const GuitarParams& p)
+float GuitarEngine::harmonicFit(const Passage& ps, int pos0) const
 {
-    if (motifWanted && motif[section & 1] >= 0 && rand01() > 0.35f * p.variation)
-        return motif[section & 1]; // hook wraca – tak zapamiętuje się melodia
-
-    const float lt = set->minEnergy + target * (set->maxEnergy - set->minEnergy);
-    auto& g = link.group(p.group);
-    uint32_t accMask = 0, bassMask = 0;
-    if (pianoAlive)
-        accMask = uint32_t(g.pianoRhythm.load(std::memory_order_relaxed)) & 0xffffu;
-    if (bassAlive)
-        bassMask = g.bassRhythm.load(std::memory_order_relaxed) & 0xffffu;
-    const float busy = std::min(1.0f, 2.0f * float(popcount(accMask)) / 16.0f);
-    const int progIdx = section ? harmony.progB : harmony.progA;
-    const Chord next = chordFor(harmony.key, progIdx, chordPos + 1);
-    const bool minor0 = isMinorQuality(chord.quality), minor1 = isMinorQuality(next.quality);
-    const int other = motif[section & 1];
-
-    float best = -1e9f;
-    int bestIndex = 0;
-    for (int i = 0; i < set->count; ++i)
+    // Akordy pasażu (stopnie w tonacji) kontra 8 taktów bieżącej progresji Piano.
+    const auto& pr = prog(section ? harmony.progB : harmony.progA);
+    const int tonic = mod12(harmony.key + (pr.minorKey ? 3 : 0));
+    float fit = 0.0f;
+    for (int k = 0; k < 8; ++k)
     {
-        const auto& ph = set->phrases[i];
-        float s = -std::abs(ph.energy - lt) * 4.0f;
-        for (int r : recent)
-            if (r == i) s -= 0.8f;
-        s += rand01() * (0.15f + 0.6f * p.variation);
-        // mniej przeróbek harmonii = bardziej naturalna melodia
-        if (isMinorQuality(ph.quality[0]) == minor0) s += 0.25f;
-        if (isMinorQuality(ph.quality[1]) == minor1) s += 0.15f;
-
-        const uint32_t m0 = ph.onsetMask & 0xffffu;
-        const int n0 = std::max(1, popcount(m0));
-        if (accMask != 0)
-            s -= p.space * 0.8f * busy * float(popcount(m0 & accMask & 0xaaaau)) / float(n0);
-        if (bassMask != 0)
-            s -= p.space * 0.3f * float(popcount(m0 & bassMask)) / float(n0);
-
-        if (motifWanted)
-            s += 0.3f * std::min(1.0f, float(ph.repeats - 1) * 0.5f);
+        const Chord c = chordFor(harmony.key, section ? harmony.progB : harmony.progA, pos0 + k);
+        const int deg = mod12(c.root - tonic);
+        const auto& d = ps.chords[k];
+        if (d.semis == deg)
+            fit += isMinorQuality(d.quality) == isMinorQuality(c.quality) ? 1.0f : 0.6f;
         else
         {
-            if (ph.source == 1) s += 0.15f; // kontrmelodie BRIDGE brzmią jak odpowiedzi
-            if (i == other) s -= 2.0f;
+            // wspólne dźwięki (np. IV i ii, I i vi) – melodia i tak dobrze leży
+            const auto a = shapeOf(d.quality), b = shapeOf(c.quality);
+            int common = 0;
+            for (int x : { 0, a.third, a.fifth })
+                for (int y : { 0, b.third, b.fifth })
+                    if (mod12(d.semis + x) == mod12(deg + y)) ++common;
+            fit += common >= 2 ? 0.45f : 0.0f;
+        }
+    }
+    return fit / 8.0f;
+}
+
+int GuitarEngine::choosePassage(float target, int pos0, const GuitarParams& p)
+{
+    const int sec = section & 1;
+    // Melodia sekcji wraca: druga zwrotka i drugi refren grają tę samą melodię.
+    if (p.role != 2 && sectionPassage[sec] >= 0 && rand01() > 0.4f * p.variation)
+    {
+        passageShift = sectionShift[sec];
+        status.phraseFit = harmonicFit(set->passages[sectionPassage[sec]], pos0);
+        return sectionPassage[sec];
+    }
+
+    const float lt = set->minEnergy + target * (set->maxEnergy - set->minEnergy);
+    uint32_t accMask = 0;
+    if (pianoAlive)
+        accMask = uint32_t(link.group(p.group).pianoRhythm.load(std::memory_order_relaxed)) & 0xffffu;
+    const float busy = std::min(1.0f, 2.0f * float(popcount(accMask)) / 16.0f);
+    const int other = sectionPassage[sec ^ 1];
+
+    float best = -1e9f, bestFit = 0.0f;
+    int bestIndex = -1;
+    for (int i = 0; i < set->count; ++i)
+    {
+        const auto& ps = set->passages[i];
+        if (p.role == 0 && ps.source != 0) continue;   // melodia: linie wokalne
+        if (p.role == 1 && ps.source != 1) continue;   // wypełnienia: kontrmelodie
+        const float fit = harmonicFit(ps, pos0);
+        float s = 3.0f * fit - 3.0f * std::abs(ps.energy - lt);
+        for (int r : recent)
+            if (r == i) s -= 1.0f;
+        if (i == other) s -= 2.0f;                      // refren inny niż zwrotka
+        if (sec == 1) s += 0.25f * std::min(2.0f, float(ps.repeats - 1)); // refreny się powtarzają
+        s += rand01() * (0.1f + 0.5f * p.variation);
+
+        if (accMask != 0)
+        {
+            int on = 0, clash = 0;
+            for (int k = 0; k < ps.count; ++k)
+            {
+                const auto& n = set->notes[ps.first + k];
+                ++on;
+                if ((accMask >> n.step & 1u) && (n.step & 1)) ++clash;
+            }
+            s -= p.space * 0.8f * busy * float(clash) / float(std::max(1, on));
         }
         if (s > best)
         {
             best = s;
             bestIndex = i;
+            bestFit = fit;
         }
     }
+    if (bestIndex < 0)
+        return -1;
 
     for (int k = 5; k > 0; --k)
         recent[k] = recent[k - 1];
     recent[0] = bestIndex;
-    if (motifWanted)
-        motif[section & 1] = bestIndex;
+    passage = bestIndex;
+    chooseShift(p);
+    if (p.role != 2)
+    {
+        sectionPassage[sec] = bestIndex;
+        sectionShift[sec] = passageShift;
+    }
+    status.phraseFit = bestFit;
     return bestIndex;
 }
 
-void GuitarEngine::buildBar(const GuitarParams& p, int spb, bool accent, bool newShift)
+void GuitarEngine::chooseShift(const GuitarParams& p)
 {
-    numPlanned = 0;
-    if (phrase < 0 || phrase >= set->count)
-        return;
-
-    const auto& ph = set->phrases[phrase];
-    const int lo16 = phraseHalf * 16;
-    const uint16_t scale = scaleMask(harmony.key, prog(section ? harmony.progB : harmony.progA).minorKey);
-    const int ref = 60 + mod12(chord.root - 60);
-    const bool ks = p.art.keyswitches;
-    const int lo = std::max(p.lowest, ks ? 50 : 0);
-    const int hiP = std::max(lo + 12, std::min(p.highest, 120));
-    const float dynScale = std::clamp(1.0f + p.dynamics * (drums.dynamics() * 1.25f - 0.75f), 0.45f, 1.35f);
-
-    int first = -1;
-    for (int k = 0; k < ph.count; ++k)
-        if (set->notes[ph.first + k].step >= lo16 && set->notes[ph.first + k].step < lo16 + 16)
-        {
-            first = k;
-            break;
-        }
-
-    if (newShift)
+    // Jedna oktawa dla całego pasażu: kształt melodii zostaje nietknięty.
+    const auto& ps = set->passages[passage];
+    const int tonic = mod12(harmony.key + (prog(section ? harmony.progB : harmony.progA).minorKey ? 3 : 0));
+    const int ref = 60 + tonic;
+    const int centre = p.registerCenter + (section == 1 ? 4 : 0); // refren wyżej
+    float bestCost = 1e9f;
+    for (int s : { -24, -12, 0, 12 })
     {
-        float bestCost = 1e9f;
-        for (int s : { -24, -12, 0, 12 })
+        float cost = std::abs(float(ref + ps.centre + s) - float(centre));
+        if (lastPitch >= 0 && ps.count > 0)
+            cost += 0.25f * float(std::abs(ref + set->notes[ps.first].rel + s - lastPitch));
+        if (cost < bestCost)
         {
-            float cost = std::abs(float(ref + ph.centre + s) - float(p.registerCenter));
-            if (lastPitch >= 0 && first >= 0)
-            {
-                const auto& n = set->notes[ph.first + first];
-                cost += 0.35f * float(std::abs(ref + remapInterval(n.rel, ph.quality[0], chord.quality, chord.root, scale) + s - lastPitch));
-            }
-            if (cost < bestCost)
-            {
-                bestCost = cost;
-                phraseShift = s;
-            }
+            bestCost = cost;
+            passageShift = s;
         }
     }
+}
 
-    for (int k = 0; k < ph.count && numPlanned < 48; ++k)
+void GuitarEngine::buildBar(const GuitarParams& p, int spb, bool accent)
+{
+    numPlanned = 0;
+    if (passage < 0 || passage >= set->count)
+        return;
+
+    const auto& ps = set->passages[passage];
+    const auto& pr = prog(section ? harmony.progB : harmony.progA);
+    const int tonic = mod12(harmony.key + (pr.minorKey ? 3 : 0));
+    const uint16_t scale = scaleMask(harmony.key, pr.minorKey);
+    const bool ks = p.art.keyswitches;
+    const int lo = std::max(p.lowest, ks ? 50 : 0);
+    const int hiP = std::max(lo + 12, std::min(p.highest + (section == 1 ? 4 : 0), 120));
+    const float dynScale = std::clamp(1.0f + p.dynamics * (drums.dynamics() * 1.25f - 0.75f), 0.45f, 1.35f);
+    const auto sh = shapeOf(chord.quality);
+
+    auto allowed = [&](int pitch)
     {
-        const auto& n = set->notes[ph.first + k];
-        if (n.step < lo16 || n.step >= lo16 + 16)
+        const int q = mod12(pitch - chord.root);
+        if (isChordTone(q, chord.quality))
+            return true;
+        if (! (scale & (1u << mod12(pitch))))
+            return false;
+        for (int t : { 0, sh.third, sh.fifth, sh.seventh })
+            if (t >= 0 && (mod12(q - t) == 1 || mod12(t - q) == 1))
+                return false;
+        return true;
+    };
+
+    for (int k = 0; k < ps.count && numPlanned < 48; ++k)
+    {
+        const auto& n = set->notes[ps.first + k];
+        if (n.bar != passageBar || n.step >= spb)
             continue;
-        const int step = n.step - lo16;
-        if (step >= spb)
-            continue;
-        int pitch = ref + remapInterval(n.rel, ph.quality[phraseHalf], chord.quality, chord.root, scale) + phraseShift;
+        int pitch = 60 + tonic + n.rel + passageShift;
         while (pitch < lo) pitch += 12;
         while (pitch > hiP) pitch -= 12;
-        float v = float(n.vel) * dynScale * (p.role == 2 ? 1.08f : 1.0f);
+        if (! allowed(pitch))
+        {
+            // Najbliższy dźwięk bez zgrzytu (pół / cały ton), przy remisie składnik akordu, potem w dół.
+            int best = pitch;
+            for (int d = 1; d <= 4 && best == pitch; ++d)
+            {
+                const bool downOk = allowed(pitch - d), upOk = allowed(pitch + d);
+                if (downOk && upOk)
+                    best = isChordTone(mod12(pitch + d - chord.root), chord.quality) && ! isChordTone(mod12(pitch - d - chord.root), chord.quality)
+                               ? pitch + d : pitch - d;
+                else if (downOk) best = pitch - d;
+                else if (upOk) best = pitch + d;
+            }
+            pitch = best;
+        }
+        float v = float(n.vel) * dynScale * (p.role == 2 ? 1.08f : 1.0f) * (section == 1 ? 1.06f : 1.0f);
         if (accent && numPlanned == 0) v *= 1.12f;
-        planned[numPlanned++] = { int8_t(step), int8_t(std::clamp<int>(n.len, 1, spb - step)), uint8_t(pitch),
+        planned[numPlanned++] = { int8_t(n.step), int8_t(std::clamp<int>(n.len, 1, spb - n.step)), uint8_t(pitch),
                                   uint8_t(std::clamp(int(v), 20, 127)), 0 };
     }
 
-    // Ozdobniki gitarowe – decyzje dla całego taktu z góry.
+    // Gitarzysta trzyma dźwięk do następnego (wokalne sylaby staccato brzmią na gitarze sucho);
+    // dłuższe pauzy zostają, bo to oddech frazy.
+    for (int i = 0; i < numPlanned; ++i)
+    {
+        auto& n = planned[i];
+        const int next = i + 1 < numPlanned ? planned[i + 1].step : std::min(spb, 16);
+        const int gap = next - (n.step + n.len);
+        if (gap > 0 && gap <= 2)
+            n.len = int8_t(n.len + gap);
+    }
+
+    // Ozdobniki gitarowe – oszczędnie, żeby melodia była czytelna.
     const float orn = std::clamp(p.ornaments + (p.role == 2 ? 0.2f : 0.0f), 0.0f, 1.0f);
     float avgLen = 0.0f;
     for (int i = 0; i < numPlanned; ++i) avgLen += float(planned[i].len);
     avgLen /= float(std::max(1, numPlanned));
-    const bool mutedBar = ks && barTarget < 0.4f && numPlanned >= 6 && avgLen <= 1.6f;
+    const bool mutedBar = ks && barTarget < 0.35f && numPlanned >= 7 && avgLen <= 1.5f;
     const int barEnd = std::min(spb, 16);
+    const bool phraseEnd = passageBar == 3 || passageBar == 7;
 
     for (int i = 0; i < numPlanned; ++i)
     {
@@ -511,36 +564,37 @@ void GuitarEngine::buildBar(const GuitarParams& p, int spb, bool accent, bool ne
         {
             auto& prev = planned[i - 1];
             const int gap = n.step - (prev.step + prev.len);
-            const int d = int(n.pitch) - int(prev.pitch);
-            const int ad = std::abs(d);
-            if (gap == 0 && d != 0)
+            const int ad = std::abs(int(n.pitch) - int(prev.pitch));
+            if (gap == 0 && ad != 0)
             {
-                if (ad <= 3 && n.len <= 4 && rand01() < 0.75f * orn)
+                if (ad <= 2 && n.len <= 2 && rand01() < 0.5f * orn)
                 {
                     // hammer-on / pull-off: zachodzące nuty, druga ciszej (Session Guitarist)
                     prev.flags |= LegatoOut;
                     n.flags |= LegatoIn;
                     n.vel = uint8_t(std::max(20, int(float(prev.vel) * 0.6f)));
                 }
-                else if (ks && ad >= 2 && ad <= 7 && n.len >= 2 && rand01() < 0.5f * orn)
+                else if (ks && ad >= 3 && ad <= 7 && n.len >= 3 && rand01() < 0.35f * orn)
                 {
                     prev.flags |= LegatoOut;
                     n.flags |= LegatoIn | SlideIn;
                 }
             }
         }
-        if (! (n.flags & LegatoIn) && ! mutedBar && n.len >= 3 && p.art.bendRange >= 1
-            && isChordTone(mod12(int(n.pitch) - chord.root), chord.quality) && rand01() < 0.3f * orn)
+        if (! (n.flags & LegatoIn) && ! mutedBar && n.len >= 4 && p.art.bendRange >= 1
+            && isChordTone(mod12(int(n.pitch) - chord.root), chord.quality) && rand01() < 0.25f * orn)
             n.flags |= Bend;
-        if (n.len >= 5 && rand01() < 0.25f + 0.6f * orn)
+        if (n.len >= 6 && rand01() < 0.2f + 0.6f * orn)
             n.flags |= Vibrato;
-        const int nextStep = i + 1 < numPlanned ? planned[i + 1].step : barEnd;
-        const int restAfter = nextStep - (n.step + n.len);
-        if (ks && ! mutedBar && restAfter >= 3 && n.len >= 2 && (phraseHalf == 1 || i == numPlanned - 1)
-            && rand01() < 0.55f * orn)
-            n.flags |= FallOff;
+        // zjazd po ostatniej nucie frazy (co 4 takty); robimy mu miejsce, skracając nutę o 16-tkę
+        if (ks && ! mutedBar && phraseEnd && i == numPlanned - 1 && n.len >= 2 && rand01() < 0.6f * orn)
+        {
+            if (n.step + n.len >= barEnd && n.len >= 3)
+                n.len = int8_t(n.len - 1);
+            if (barEnd - (n.step + n.len) >= 1)
+                n.flags |= FallOff;
+        }
     }
-    // nuta przechodząca legato w następną nie może mieć bendu, wibrata ani zjazdu
     for (int i = 0; i < numPlanned; ++i)
         if (planned[i].flags & LegatoOut)
             planned[i].flags &= uint8_t(~(Bend | Vibrato | FallOff));

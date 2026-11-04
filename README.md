@@ -91,35 +91,45 @@ klawisze) i przestaw pola we wtyczce.
 
 **Jak gra Gitara:**
 
-- Myśli **frazami po dwa takty**. W roli **Hook** pierwsza fraza sekcji to
-  motyw, który wraca co cztery takty (tak zapamiętuje się melodię), a co drugą
-  frazę gra odpowiedź. Gałka **Wariacje** decyduje, jak często motyw się zmienia.
-- **Wypełnienia**: dwa takty ciszy, dwa takty gry (miejsce dla wokalu).
-  **Solo**: frazy bez przerw, wyższa energia i więcej ozdobników.
-- Każdą nutę przenosi na akord bieżącego taktu z gwarancją braku zgrzytów:
-  tylko składniki akordu albo dźwięki skali, które nie leżą półton od żadnego
-  składnika (`remapInterval`, ta sama reguła co w Piano i Bass). Test jamu
-  sprawdza co 1/32 nuty, że gitara nie tworzy sekundy małej ani nony małej
-  z żadną nutą Piano i Bass.
-- **Miejsce** (dla Piano): wybiera frazy, które trafiają w pauzy rytmu Piano
-  i rzadziej w nuty basu.
-- **Ozdobniki**: ile slajdów, bendów, hammer-onów, wibrata i zjazdów.
+- Gra **całe 8-taktowe melodie z jednej piosenki** (pasaże z POP909), a nie
+  sklejkę krótkich urywków. Melodia jest zapisana w tonacji, więc przy
+  transpozycji do tonacji Piano zachowuje kształt. Wybierana jest ta, której
+  oryginalne akordy najlepiej pasują do bieżącej progresji (w GUI: „pasuje
+  NN %”).
+- **Zwrotka i refren mają swoje melodie.** Druga zwrotka gra melodię pierwszej,
+  drugi refren melodię pierwszego. Gałka **Wariacje** decyduje, jak często
+  pojawia się nowa. Refren gra wyżej i pełniej, a energia lekko narasta w
+  sekcji.
+- Wchodzi z początkiem frazy (co 4 takty), nie w połowie zdania.
+- **Melodia**: linie wokalne. **Wypełnienia**: instrumentalne kontrmelodie
+  (BRIDGE), które w piosenkach grają między frazami wokalu. **Solo**: wyższa
+  energia, nowa melodia w każdym pasażu i więcej ozdobników.
+- Dźwięki trzymane są do następnej nuty (legato frazy). Nuta, która w nowym
+  akordzie zgrzytałaby, przesuwa się o pół lub cały ton na najbliższy dźwięk
+  bez zgrzytu: składnik akordu albo dźwięk skali, który nie leży półton od
+  składnika. Test jamu sprawdza co 1/32 nuty, że gitara nie tworzy sekundy
+  małej ani nony małej z żadną nutą Piano i Bass.
+- **Miejsce** (dla Piano): wybiera melodie, które rzadziej trafiają w rytm Piano.
+- **Ozdobniki** (domyślnie 35 %): slajdy, bendy, hammer-ony, wibrato i zjazdy
+  na końcu fraz.
 - Gdy bębniarz gra przejście, gitara nie zaczyna nowych nut. Po przejściu
-  (zmiana zwrotka ↔ refren) zaczyna motyw nowej sekcji.
+  zaczyna melodię nowej sekcji.
+
+**Forma przy zapętlonym bębnie.** W Piano pole **Forma** (domyślnie „Auto: co
+8 taktów”) zmienia zwrotkę i refren co 8 lub 16 taktów także wtedy, gdy
+bębniarz nie gra przejść. Piano, Bass i Gitara liczą to tą samą regułą, a
+przejście na tomach dalej przełącza sekcję od razu. „Tylko przejścia” to
+poprzednie zachowanie.
 
 **Biblioteka melodii.** `Source/Core/GuitarPhraseData.h` generuje
-`tools/extract_guitar.py` z **POP909**: 909 popularnych piosenek pop, ścieżka
-MELODY (linia wokalu, czyli właściwe melodie zwrotek i refrenów) i BRIDGE
-(instrumentalne kontrmelodie i wstawki, najbardziej „gitarowy” materiał).
-Wybrano 630 dwutaktowych fraz z jednym akordem w takcie, z pierwszeństwem dla
-fraz powtarzanych w piosence (hooki refrenów), plus 12 ręcznie napisanych
-idiomów popowej gitary (pentatonika, seksty, zawieszenia, ósemki „na delay”).
-Opcja `--lakh` dodaje frazy z prawdziwych ścieżek gitary prowadzącej z Lakh
-MIDI (filtr artystów pop). To materiał chroniony prawem autorskim, więc tylko
-do użytku prywatnego.
+`tools/extract_guitar.py` z **POP909** (909 popularnych piosenek pop). Z 2814
+fragmentów 8-taktowych w jednej tonacji wybrano 600 pasaży MELODY (linia
+wokalu) i 300 BRIDGE (instrumentalne kontrmelodie). Najpierw brane są
+fragmenty powtarzane w piosence (refreny) i pasujące do typowych progresji,
+najwyżej dwa z jednego utworu.
 
 ```bash
-python3 tools/extract_guitar.py --pop909 POP909-Dataset/POP909 [--lakh ~/lmd/clean_midi]
+python3 tools/extract_guitar.py --pop909 POP909-Dataset/POP909
 ```
 
 **Brak pętli sprzężenia zwrotnego.** Gitara tylko słucha: czyta z linku

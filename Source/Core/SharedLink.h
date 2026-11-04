@@ -19,10 +19,11 @@ struct GroupState
 {
     // Ustawienia harmonii z okna progresji (Piano): bity
     // [0..3] tonacja, [4..11] progresja zwrotki, [12..19] progresja refrenu,
-    // [20] przejście zmienia sekcję, [31] ważne.
+    // [20] przejście zmienia sekcję, [21..22] forma automatyczna (0 brak, 1 = 8, 2 = 16 taktów), [31] ważne.
     std::atomic<uint32_t> harmony { 0 };
 
-    // Decyzja Piano dla taktu: [63..32] numer taktu, [15..8] sekcja, [7..0] pozycja akordu.
+    // Decyzja Piano dla taktu: [63..32] numer taktu, [15..8] sekcja,
+    // [7..0] numer taktu w sekcji (modulo 240, więc pasuje do każdej progresji i formy).
     std::atomic<uint64_t> pianoBar { 0 };
     // Rytm Piano: [63..32] numer taktu, [31..0] maska kroków z nutą.
     std::atomic<uint64_t> pianoRhythm { 0 };
@@ -64,12 +65,36 @@ struct HarmonySettings
 {
     int key = 0, progA = 0, progB = 1;
     bool fillSwitchesSection = true;
+    int formBars = 0;             // 0 = sekcję zmienia tylko przejście; 8 / 16 = też co tyle taktów
     bool valid = false;
 
     uint32_t pack() const
     {
+        const uint32_t form = formBars >= 16 ? 2u : (formBars > 0 ? 1u : 0u);
         return uint32_t(key & 15) | uint32_t(progA & 255) << 4 | uint32_t(progB & 255) << 12
-             | uint32_t(fillSwitchesSection ? 1 : 0) << 20 | 1u << 31;
+             | uint32_t(fillSwitchesSection ? 1 : 0) << 20 | form << 21 | 1u << 31;
+    }
+
+    // Start / skok kursora: sekcja wynika z pozycji w projekcie (forma co formBars taktów),
+    // bez formy – zwrotka z akordami liczonymi od początku projektu.
+    void sectionAtStart(int bar, int& section, int& sectionStart) const
+    {
+        if (formBars > 0 && bar > 0)
+        {
+            section = (bar / formBars) & 1;
+            sectionStart = bar - bar % formBars;
+        }
+        else
+        {
+            section = 0;
+            sectionStart = 0;
+        }
+    }
+
+    // Czy od taktu `bar` zaczyna się nowa sekcja (ta sama reguła we wszystkich instancjach).
+    bool switchesAt(int bar, int sectionStart, bool fill) const
+    {
+        return (fill && fillSwitchesSection) || (formBars > 0 && bar - sectionStart >= formBars);
     }
     static HarmonySettings unpack(uint32_t w)
     {
@@ -79,13 +104,16 @@ struct HarmonySettings
         h.progA = int((w >> 4) & 255);
         h.progB = int((w >> 12) & 255);
         h.fillSwitchesSection = (w >> 20) & 1;
+        const uint32_t form = (w >> 21) & 3;
+        h.formBars = form == 2 ? 16 : (form == 1 ? 8 : 0);
         return h;
     }
 };
 
-inline uint64_t packBar(int bar, int section, int chordPos)
+inline uint64_t packBar(int bar, int section, int posInSection)
 {
-    return uint64_t(uint32_t(bar)) << 32 | uint64_t(section & 255) << 8 | uint64_t(chordPos & 255);
+    const int pos = ((posInSection % 240) + 240) % 240;
+    return uint64_t(uint32_t(bar)) << 32 | uint64_t(section & 255) << 8 | uint64_t(pos & 255);
 }
 
 } // namespace sk

@@ -1,145 +1,159 @@
 #!/usr/bin/env python3
-"""Ekstrakcja biblioteki fraz gitary prowadzącej z POP909 (i opcjonalnie Lakh MIDI).
+"""Ekstrakcja biblioteki melodii gitary prowadzącej z POP909.
 
 Wynik: Source/Core/GuitarPhraseData.h (dane wkompilowane we wtyczkę Gitara).
 
-Fraza = dwa takty 4/4 (siatka 32 szesnastek), w każdym takcie jeden akord.
+Jednostka biblioteki to **pasaż**: 8 kolejnych taktów 4/4 z *jednej* piosenki,
+czyli cała melodia zwrotki albo refrenu (zwykle A A' w dwóch frazach po 4 takty).
+Dzięki temu gitara gra spójną, rozwijającą się melodię, a nie sklejkę urywków.
+
+Wysokości zapisujemy względem toniki **durowej** tonacji fragmentu (moll ->
+równoległy dur, np. a-moll -> C), razem z akordem każdego taktu jako stopniem
+(półtony od toniki + jakość). W czasie gry pasaż jest transponowany do tonacji
+Piano bez zmiany kształtu linii, a wybieramy te pasaże, których akordy najlepiej
+pasują do bieżącej progresji (I-V-vi-IV jest w POP909 bardzo częste, więc zwykle
+melodia gra na „swoich” akordach). Dźwięki, które mimo to zgrzytałyby z akordem,
+silnik przesuwa o pół lub cały ton (patrz GuitarEngine.cpp).
+
 Źródła w POP909:
-  MELODY – linia wokalu (to są refreny i zwrotki znanych popowych piosenek),
-  BRIDGE – instrumentalne kontrmelodie i wstawki między frazami wokalu
-           (najbardziej „gitarowy” materiał w zbiorze).
-Każdą nutę zapisujemy względem pryma akordu *swojego* taktu, razem z jakością
-obu akordów, więc w czasie gry fraza da się przenieść na dowolne dwa akordy
-z progresji Piano (bez zgrzytów, patrz remapInterval w Harmony.h).
-
-Frazy, które powtarzają się w piosence (hooki refrenu), mają pierwszeństwo.
-Do biblioteki dochodzi zestaw krótkich idiomów popowej gitary (IDIOMS niżej),
-napisanych ręcznie: pentatonika, seksty, zawieszenia, ósemki „na delay”.
-
-Lakh (--lakh DIR) dodaje frazy ze ścieżek gitary prowadzącej (GM 24–31,
-monofoniczne). Lakh zawiera materiał chroniony prawem autorskim, więc taka
-biblioteka jest wyłącznie do użytku prywatnego.
+  MELODY – linia wokalu (melodie zwrotek i refrenów),
+  BRIDGE – instrumentalne kontrmelodie i wstawki między frazami wokalu.
 
 Użycie:
-  python3 tools/extract_guitar.py --pop909 /ścieżka/POP909 [--lakh /ścieżka/clean_midi] \
-         [--out Source/Core/GuitarPhraseData.h]
+  python3 tools/extract_guitar.py --pop909 /ścieżka/POP909 [--out Source/Core/GuitarPhraseData.h]
 """
-import argparse, collections, hashlib, os, re, sys
+import argparse, collections, hashlib, os, sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from extract_licks import parse_chord, midi_notes, chord_at, guess_chord, POP_ARTISTS  # noqa: E402
+from extract_licks import parse_chord, midi_notes  # noqa: E402
 
-STEPS = 32
-REF_LO = 60          # prymę akordu liczymy w oktawie C4..B4
-MAJ, MIN = 0, 1
+BARS = 8
+STEPS = 16 * BARS
+MINORISH = (1, 4, 5)   # min, min7, dim
 
-# Idiomy popowej gitary prowadzącej: (jakość akordu taktu 1, taktu 2, nuty).
-# Nuta: (krok 0..31, długość w 16-tkach, interwał od pryma akordu swojego taktu, dynamika).
-# Interwały: 0 pryma, 2 nona, 4/3 tercja, 7 kwinta, 9 seksta, 12 oktawa.
-IDIOMS = [
-    # hook pentatoniczny z długim zakończeniem na tercji
-    (MAJ, MAJ, [(0, 2, 7, 96), (2, 2, 9, 84), (4, 4, 12, 100), (10, 2, 9, 80), (12, 4, 7, 90),
-                (16, 2, 4, 92), (18, 2, 7, 84), (20, 10, 4, 98)]),
-    # ósemki „na delay” (kwinta-oktawa-nona)
-    (MAJ, MAJ, [(s, 2, (7, 12, 14, 12)[s // 2 % 4], 88 if s % 4 == 0 else 72) for s in range(0, 32, 2)]),
-    # wejście z przedtaktu, seksty w dół
-    (MAJ, MAJ, [(2, 2, 16, 90), (4, 6, 14, 96), (12, 2, 12, 82), (14, 2, 9, 80), (16, 8, 7, 94),
-                (26, 2, 4, 80), (28, 4, 7, 86)]),
-    # zawieszenie 2 -> 3, długi dźwięk z wibracją
-    (MAJ, MAJ, [(0, 3, 0, 90), (3, 3, 2, 86), (6, 10, 4, 100), (20, 2, 7, 84), (22, 2, 4, 80), (24, 8, 2, 88)]),
-    # riff synkopowany wokół kwinty
-    (MAJ, MAJ, [(0, 1, 7, 100), (3, 1, 7, 84), (6, 2, 9, 92), (8, 2, 7, 84), (11, 3, 4, 96),
-                (16, 1, 7, 100), (19, 1, 7, 84), (22, 2, 9, 92), (24, 8, 12, 98)]),
-    # odpowiedź: cisza, potem zjazd z oktawy
-    (MAJ, MAJ, [(8, 2, 16, 90), (10, 2, 14, 84), (12, 4, 12, 96), (16, 2, 9, 86), (18, 2, 7, 80),
-                (20, 12, 4, 94)]),
-    # moll: pentatonika molowa z tercją na końcu
-    (MIN, MIN, [(0, 2, 7, 96), (2, 2, 10, 86), (4, 6, 12, 100), (12, 2, 10, 82), (14, 2, 7, 80),
-                (16, 4, 3, 94), (20, 2, 5, 80), (22, 10, 3, 96)]),
-    # moll: arpeggio w górę i zejście
-    (MIN, MIN, [(0, 2, 0, 90), (2, 2, 3, 82), (4, 2, 7, 86), (6, 6, 12, 98), (16, 2, 10, 86),
-                (18, 2, 7, 80), (20, 4, 3, 90), (24, 8, 0, 92)]),
-    # moll: ósemki z kwintą na „i”
-    (MIN, MIN, [(s, 2, (12, 7, 10, 7)[s // 2 % 4], 90 if s % 4 == 0 else 70) for s in range(0, 32, 2)]),
-    # spokojny motyw: dwie długie nuty i ozdobnik
-    (MAJ, MAJ, [(0, 8, 4, 92), (8, 2, 2, 80), (10, 6, 0, 86), (16, 8, 7, 94), (24, 2, 9, 80), (26, 6, 7, 86)]),
-    # energiczne 16-tki (solo): skala pentatoniczna w górę
-    (MAJ, MAJ, [(s, 1, (0, 2, 4, 7, 9, 12, 14, 16)[s % 8] + (12 if s >= 16 else 0) - (12 if s >= 24 else 0),
-                 100 if s % 4 == 0 else 78) for s in range(0, 28)] + [(28, 4, 12, 104)]),
-    # krótkie wtrącenie na końcu drugiego taktu (miejsce dla wokalu)
-    (MAJ, MAJ, [(20, 1, 7, 90), (21, 1, 9, 84), (22, 2, 12, 96), (24, 2, 9, 86), (26, 6, 7, 92)]),
+# Stopnie diatoniczne durowe: półtony od toniki -> jakości typowe w popie.
+DIATONIC = {0: (0, 3), 2: (1, 4), 4: (1, 4), 5: (0, 3), 7: (0, 2), 9: (1, 4), 11: (5,), 10: (0,)}
+
+# Progresje z Source/Core/Harmony.h jako (półtony od toniki durowej, molowy?) – do priorytetu.
+PROGS = [
+    [(0, 0), (7, 0), (9, 1), (5, 0)], [(9, 1), (5, 0), (0, 0), (7, 0)], [(0, 0), (9, 1), (5, 0), (7, 0)],
+    [(0, 0), (5, 0), (9, 1), (7, 0)], [(5, 0), (0, 0), (7, 0), (9, 1)], [(0, 0), (5, 0), (0, 0), (7, 0)],
+    [(2, 1), (7, 0), (0, 0), (0, 0)], [(0, 0), (4, 1), (5, 0), (7, 0)],
+    [(0, 0), (7, 0), (9, 1), (4, 1), (5, 0), (0, 0), (5, 0), (7, 0)], [(0, 0), (5, 0)],
+    [(0, 0), (10, 0), (5, 0), (0, 0)], [(5, 0), (7, 0), (4, 1), (9, 1)],
+    # molowe zapisane względem toniki durowej (i = 9)
+    [(9, 1), (5, 0), (0, 0), (7, 0)], [(9, 1), (7, 0), (5, 0), (4, 0)], [(9, 1), (2, 1), (5, 0), (4, 0)],
+    [(9, 1), (5, 0), (7, 0), (9, 1)], [(9, 1), (2, 1), (7, 0), (0, 0)],
 ]
 
 
-def quantize(notes, t0, t1):
-    """Kwantyzacja dwóch taktów do 32 kroków; linia monofoniczna (górny głos)."""
-    dur = t1 - t0
+def bar_chord(chords, t0, t1):
+    """Akord o największym udziale w takcie (albo None, gdy brak harmonii)."""
+    best, best_ov = None, 0.0
+    for a, b, c in chords:
+        ov = min(b, t1) - max(a, t0)
+        if ov > best_ov and c:
+            best, best_ov = c, ov
+    return best if best_ov > 0.5 * (t1 - t0) else None
+
+
+def key_of_window(chs, hint):
+    """Tonika durowa, w której akordy fragmentu są najbardziej diatoniczne."""
+    best, best_s = None, -1.0
+    for t in range(12):
+        s = 0.0
+        for root, q in chs:
+            d = (root - t) % 12
+            if d in DIATONIC:
+                s += 1.0 if q in DIATONIC[d] or (q == 6 and d in (0, 5, 7)) else 0.5
+        if t == hint:
+            s += 0.25
+        if s > best_s:
+            best, best_s = t, s
+    return best, best_s
+
+
+def quantize(notes, bar_times):
+    """Monofoniczna linia (górny głos) w siatce 16-tek, nuty przycięte do kreski taktowej."""
     by_step = {}
     for s, e, p, v in notes:
-        if s < t0 - dur / 64 or s >= t1 - dur / 64:
+        if s < bar_times[0] - 0.03 or s >= bar_times[-1] - 0.03:
             continue
-        st = int(round((s - t0) / dur * STEPS))
-        if not 0 <= st < STEPS:
-            continue
-        ln = max(1, int(round((e - s) / dur * STEPS)))
-        if st not in by_step or p > by_step[st][1]:
-            by_step[st] = (ln, p, v)
-    steps = sorted(by_step)
+        b = max(0, min(BARS - 1, next(i for i in range(BARS) if s < bar_times[i + 1] - 0.03)))
+        t0, t1 = bar_times[b], bar_times[b + 1]
+        st = int(round((s - t0) / (t1 - t0) * 16))
+        if st >= 16:
+            b, st = b + 1, 0
+            if b >= BARS:
+                continue
+            t0, t1 = bar_times[b], bar_times[b + 1]
+        st = max(0, st)
+        ln = max(1, int(round((e - s) / (t1 - t0) * 16)))
+        k = b * 16 + st
+        if k not in by_step or p > by_step[k][1]:
+            by_step[k] = (ln, p, v)
+    keys = sorted(by_step)
     out = []
-    for i, st in enumerate(steps):
-        ln, p, v = by_step[st]
-        nxt = steps[i + 1] if i + 1 < len(steps) else STEPS
-        lim = (16 if st < 16 else 32) - st          # nuta nie przechodzi przez kreskę taktową
-        out.append((st, max(1, min(ln, nxt - st, lim)), p, v))
+    for i, k in enumerate(keys):
+        ln, p, v = by_step[k]
+        nxt = keys[i + 1] if i + 1 < len(keys) else STEPS
+        bar_end = (k // 16 + 1) * 16
+        out.append((k, max(1, min(ln, nxt - k, bar_end - k)), p, v))
     return out
 
 
-def make_phrase(q, ch0, ch1):
-    if len(q) < 4 or not any(st < 16 for st, *_ in q) or q[0][0] >= 12:
+def make_passage(q, chs, tonic):
+    if len(q) < 12:
         return None
-    if sum(1 for st, *_ in q if st < 16) > 14 or sum(1 for st, *_ in q if st >= 16) > 14:
+    bars_with = {k // 16 for k, *_ in q}
+    if len(bars_with) < 5 or 0 not in bars_with:
+        return None
+    if any(sum(1 for k, *_ in q if k // 16 == b) > 14 for b in range(BARS)):
         return None
     pitches = [p for _, _, p, _ in q]
-    if max(pitches) - min(pitches) > 19:
+    if max(pitches) - min(pitches) > 21 or any(abs(a - b) > 12 for a, b in zip(pitches, pitches[1:])):
         return None
-    if any(abs(a - b) > 9 for a, b in zip(pitches, pitches[1:])):
-        return None
+    ref = 60 + tonic
     mean_v = sum(v for *_, v in q) / len(q)
     notes = []
-    for st, ln, p, v in q:
-        root = ch0[0] if st < 16 else ch1[0]
-        ref = REF_LO + ((root - REF_LO) % 12)
+    for k, ln, p, v in q:
         rel = p - ref
-        if not -24 <= rel <= 30:
+        if not -24 <= rel <= 36:
             return None
-        vel = max(30, min(127, int(round(90 + (v - mean_v) * 0.8))))
-        notes.append((st, ln, rel, vel))
-    return dict(notes=notes, q=(ch0[1], ch1[1]))
+        notes.append((k // 16, k % 16, ln, rel, max(30, min(127, int(round(90 + (v - mean_v) * 0.8))))))
+    degs = [((r - tonic) % 12, qq) for r, qq in chs]
+    return dict(notes=notes, chords=degs)
 
 
-def features(ph):
-    notes = ph["notes"]
-    mask = 0
-    for st, *_ in notes:
-        mask |= 1 << st
+def features(ps):
+    notes = ps["notes"]
     n = len(notes)
+    rels = [r for *_, r, _ in notes]
     dens = n / STEPS
-    sync = sum(1 for st, *_ in notes if st % 2 == 1) / n
-    rels = [r for _, _, r, _ in notes]
+    sync = sum(1 for _, st, *_ in notes if st % 2) / n
     span = max(rels) - min(rels)
-    longest = max(ln for _, ln, _, _ in notes)
-    centre = sum(rels) / n
-    ph.update(mask=mask, dens=dens, sync=sync, span=span, centre=centre,
-              energy=min(1.0, 0.55 * dens / 0.45 + 0.2 * sync + 0.15 * span / 19 + 0.1 * (1 - min(1, longest / 8))))
-    return ph
+    ps.update(dens=dens, centre=sum(rels) / n,
+              energy=min(1.0, 0.6 * dens / 0.4 + 0.2 * sync + 0.1 * span / 21 + 0.1 * (sum(rels) / n + 12) / 36))
+    # dopasowanie do progresji z Harmony.h (z przesunięciem fazy)
+    best = 0.0
+    for pr in PROGS:
+        L = len(pr)
+        for ph in range(L):
+            s = 0.0
+            for i, (d, q) in enumerate(ps["chords"]):
+                pd, pm = pr[(i + ph) % L]
+                if d == pd:
+                    s += 1.0 if (q in MINORISH) == bool(pm) else 0.6
+            best = max(best, s / BARS)
+    ps["match"] = best
+    return ps
 
 
-def key_of(ph):
-    return hashlib.md5(repr((ph["q"][0] in (1, 4), ph["q"][1] in (1, 4),
-                             [(a, b, c) for a, b, c, _ in ph["notes"]])).encode()).hexdigest()
+def key_hash(ps):
+    return hashlib.md5(repr([(b, s, l, r) for b, s, l, r, _ in ps["notes"]]).encode()).hexdigest()
 
 
-def pop909_phrases(root, out, stats):
+def pop909_passages(root, out, stats):
     for song in sorted(os.listdir(root)):
         d = os.path.join(root, song)
         mid = os.path.join(d, song + ".mid")
@@ -151,119 +165,110 @@ def pop909_phrases(root, out, stats):
             parts = l.split()
             if len(parts) >= 3:
                 chords.append((float(parts[0]), float(parts[1]), parse_chord(parts[2])))
+        hint = None
+        kf = os.path.join(d, "key_audio.txt")
+        if os.path.isfile(kf):
+            for l in open(kf):
+                parts = l.split()
+                if len(parts) >= 3:
+                    kc = parse_chord(parts[2])
+                    if kc:
+                        hint = (kc[0] + (3 if kc[1] == 1 else 0)) % 12
+                    break
         downs = [i for i, b in enumerate(beats) if b[2] == 1.0]
-        for track, src in (("MELODY", 0), ("BRIDGE", 1)):
+        tracks = {}
+        for track in ("MELODY", "BRIDGE"):
             try:
-                notes, _ = midi_notes(mid, lambda name, prog, drum, t=track: name.strip().upper() == t)
+                tracks[track], _ = midi_notes(mid, lambda name, prog, drum, t=track: name.strip().upper() == t)
             except Exception as e:
                 print("pomijam", mid, e, file=sys.stderr)
-                break
-            if not notes:
-                continue
-            for a, b, c in zip(downs, downs[1:], downs[2:]):
-                if b - a != 4 or c - b != 4:
-                    continue
-                t0, t1, t2 = beats[a][0], beats[b][0], beats[c][0]
-                if abs((t2 - t1) - (t1 - t0)) > 0.1 * (t1 - t0):
-                    continue
-                ch0, ch1 = chord_at(chords, t0, t1), chord_at(chords, t1, t2)
-                if not ch0 or not ch1:
-                    continue
-                ph = make_phrase(quantize(notes, t0, t2), ch0, ch1)
-                stats["phrases"] += 1
-                if ph:
-                    ph["src"] = src
-                    ph["song"] = "pop909:" + song
-                    out.append(features(ph))
         stats["songs"] += 1
+        for w in range(0, len(downs) - BARS, 4):
+            idx = downs[w:w + BARS + 1]
+            if any(b - a != 4 for a, b in zip(idx, idx[1:])):
+                continue
+            times = [beats[i][0] for i in idx]
+            lens = [b - a for a, b in zip(times, times[1:])]
+            if max(lens) > 1.12 * min(lens):
+                continue
+            chs = [bar_chord(chords, a, b) for a, b in zip(times, times[1:])]
+            if any(c is None for c in chs):
+                continue
+            tonic, fit = key_of_window(chs, hint)
+            if fit < 6.0:
+                continue
+            stats["windows"] += 1
+            for track, src in (("MELODY", 0), ("BRIDGE", 1)):
+                notes = tracks.get(track)
+                if not notes:
+                    continue
+                ps = make_passage(quantize(notes, times), chs, tonic)
+                if ps:
+                    ps.update(src=src, song=song)
+                    out.append(features(ps))
 
 
-def lakh_phrases(root, out, stats, limit):
-    files = []
-    for artist in sorted(os.listdir(root)):
-        if POP_ARTISTS.search(artist):
-            ad = os.path.join(root, artist)
-            files += [os.path.join(ad, f) for f in sorted(os.listdir(ad)) if f.lower().endswith(".mid")]
-    for path in files[:limit]:
-        try:
-            lead, mf = midi_notes(path, lambda name, prog, drum: (not drum) and 24 <= prog <= 31
-                                  and not re.search(r"rhythm|chord|strum", name or "", re.I))
-            rest, _ = midi_notes(path, lambda name, prog, drum: (not drum) and not 24 <= prog <= 31)
-        except Exception:
-            continue
-        if not lead:
-            continue
-        tempos = [m.tempo for tr in mf.tracks for m in tr if m.type == "set_tempo"]
-        if len(set(tempos)) > 1:
-            continue
-        bar = 4 * (tempos[0] if tempos else 500000) / 1e6
-        end = max(e for _, e, _, _ in lead)
-        t = 0.0
-        while t + 2 * bar <= end:
-            h0 = [(p, e - s) for s, e, p, _ in rest if s < t + bar and e > t]
-            h1 = [(p, e - s) for s, e, p, _ in rest if s < t + 2 * bar and e > t + bar]
-            ch0, ch1 = guess_chord(h0), guess_chord(h1)
-            if ch0 and ch1:
-                ph = make_phrase(quantize(lead, t, t + 2 * bar), ch0, ch1)
-                if ph:
-                    ph["src"] = 3
-                    ph["song"] = "lakh:" + path
-                    out.append(features(ph))
-            t += 2 * bar
-        stats["lakh_songs"] += 1
-
-
-def select(phrases, cap, per_song):
+def select(passages, caps, per_song):
     seen, uniq = {}, []
-    for ph in phrases:
-        k = key_of(ph)
+    for ps in passages:
+        k = key_hash(ps)
         if k in seen:
             seen[k]["count"] += 1
             continue
-        ph["count"] = 1
-        seen[k] = ph
-        uniq.append(ph)
-    uniq.sort(key=lambda ph: (-ph["count"], ph["src"] != 1))  # hooki, potem BRIDGE
-    bins = collections.defaultdict(list)
-    for ph in uniq:
-        bins[min(9, int(ph["energy"] * 10))].append(ph)
-    out, per = [], collections.Counter()
-    per_bin = cap // 10
-    for b in range(10):
-        taken = 0
-        for ph in bins[b]:
-            if taken >= per_bin:
-                break
-            if per[ph["song"]] >= per_song:
-                continue
-            per[ph["song"]] += 1
-            out.append(ph)
-            taken += 1
+        ps["count"] = 1
+        seen[k] = ps
+        uniq.append(ps)
+    out = []
+    for src, cap in enumerate(caps):
+        pool = [p for p in uniq if p["src"] == src]
+        # hooki (powtarzane w piosence) i dobre dopasowanie do typowych progresji najpierw
+        pool.sort(key=lambda p: -(p["match"] + 0.25 * min(2, p["count"] - 1)))
+        bins = collections.defaultdict(list)
+        for p in pool:
+            bins[min(9, int(p["energy"] * 10))].append(p)
+        per, chosen = collections.Counter(), []
+        per_bin = cap // 10
+        for _ in range(2):  # drugie przejście dobiera z pełnych przedziałów
+            for b in range(10):
+                taken = sum(1 for p in chosen if min(9, int(p["energy"] * 10)) == b)
+                for p in bins[b]:
+                    if taken >= per_bin or len(chosen) >= cap:
+                        break
+                    if p.get("taken") or per[p["song"]] >= per_song:
+                        continue
+                    p["taken"] = True
+                    per[p["song"]] += 1
+                    chosen.append(p)
+                    taken += 1
+            per_bin = cap  # w drugim przejściu bez limitu przedziału
+        out += chosen
     return out
 
 
-def emit(path, phrases, stats):
-    phrases = sorted(phrases, key=lambda ph: ph["energy"])
+def emit(path, passages, stats):
+    passages = sorted(passages, key=lambda p: (p["src"], p["energy"]))
+    src = collections.Counter(p["src"] for p in passages)
     lines = ["// WYGENEROWANE przez tools/extract_guitar.py – nie edytuj ręcznie.",
-             f"// Źródło: {stats['songs']} utworów POP909 (MELODY + BRIDGE), {stats['phrases']} par taktów"
-             f" z jednym akordem w takcie, {len(IDIOMS)} idiomów gitarowych.",
-             "// POP909 (MIT, Music X Lab). Dane Lakh (jeśli są) wyłącznie do użytku prywatnego.",
+             f"// Źródło: {stats['songs']} utworów POP909, {stats['windows']} fragmentów 8-taktowych w jednej tonacji;",
+             f"// wybrano {src[0]} pasaży MELODY i {src[1]} pasaży BRIDGE.",
+             "// POP909 (MIT, Music X Lab).",
              "#pragma once", "#include \"GuitarTypes.h\"", "", "namespace sk::data {", ""]
     notes, heads = [], []
-    for ph in phrases:
+    for p in passages:
         first = len(notes)
-        notes += ph["notes"]
-        heads.append((first, len(ph["notes"]), ph["q"][0], ph["q"][1], ph["src"], ph["energy"], ph["dens"],
-                      ph["mask"], int(round(ph["centre"])), ph["count"]))
-    lines.append("inline constexpr PhraseNote guitarNotes[] = {")
+        notes += p["notes"]
+        heads.append((first, p))
+    lines.append("inline constexpr PassageNote guitarNotes[] = {")
     for i in range(0, len(notes), 6):
-        lines.append("    " + " ".join(f"{{{a},{b},{c},{d}}}," for a, b, c, d in notes[i:i + 6]))
+        lines.append("    " + " ".join(f"{{{a},{b},{c},{d},{e}}}," for a, b, c, d, e in notes[i:i + 6]))
     lines.append("};")
-    lines.append("inline constexpr Phrase guitarPhrases[] = {")
-    for f, c, q0, q1, src, e, d, m, ce, cnt in heads:
-        lines.append(f"    {{{f},{c},{{{q0},{q1}}},{src},{min(cnt, 255)},{ce},{e:.3f}f,{d:.3f}f,0x{m:08x}u}},")
+    lines.append("inline constexpr Passage guitarPassages[] = {")
+    for first, p in heads:
+        ch = ",".join(f"{{{d},{q}}}" for d, q in p["chords"])
+        lines.append(f"    {{{first},{len(p['notes'])},{{{ch}}},{p['src']},{min(p['count'], 255)},"
+                     f"{int(round(p['centre']))},{p['energy']:.3f}f,{p['dens']:.3f}f,{int(p['song'])}}},")
     lines.append("};")
-    lines.append(f"inline constexpr int guitarPhraseCount = {len(heads)};")
+    lines.append(f"inline constexpr int guitarPassageCount = {len(heads)};")
     lines.append("")
     lines.append("} // namespace sk::data")
     with open(path, "w", encoding="utf-8") as fh:
@@ -273,23 +278,18 @@ def emit(path, phrases, stats):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--pop909", required=True)
-    ap.add_argument("--lakh")
-    ap.add_argument("--lakh-limit", type=int, default=3000)
-    ap.add_argument("--cap", type=int, default=700)
-    ap.add_argument("--per-song", type=int, default=3)
+    ap.add_argument("--melody-cap", type=int, default=600)
+    ap.add_argument("--bridge-cap", type=int, default=300)
+    ap.add_argument("--per-song", type=int, default=2)
     ap.add_argument("--out", default=os.path.join(os.path.dirname(__file__), "..", "Source", "Core", "GuitarPhraseData.h"))
     a = ap.parse_args()
-    phrases, stats = [], collections.Counter()
-    pop909_phrases(a.pop909, phrases, stats)
-    if a.lakh:
-        lakh_phrases(a.lakh, phrases, stats, a.lakh_limit)
-    print(f"surowe frazy: {len(phrases)}; {dict(stats)}")
-    chosen = select(phrases, a.cap, a.per_song)
-    for q0, q1, ns in IDIOMS:
-        ph = features(dict(notes=sorted(ns), q=(q0, q1), src=2, song="idiom", count=3))
-        chosen.append(ph)
-    src = collections.Counter(ph["src"] for ph in chosen)
-    print(f"wybrane: {len(chosen)} (MELODY {src[0]}, BRIDGE {src[1]}, idiomy {src[2]}, Lakh {src[3]})")
+    passages, stats = [], collections.Counter()
+    pop909_passages(a.pop909, passages, stats)
+    print(f"surowe pasaże: {len(passages)}; {dict(stats)}")
+    chosen = select(passages, (a.melody_cap, a.bridge_cap), a.per_song)
+    src = collections.Counter(p["src"] for p in chosen)
+    good = sum(1 for p in chosen if p["match"] >= 0.75)
+    print(f"wybrane: {len(chosen)} (MELODY {src[0]}, BRIDGE {src[1]}), dobrze pasujących do progresji: {good}")
     emit(a.out, chosen, stats)
 
 

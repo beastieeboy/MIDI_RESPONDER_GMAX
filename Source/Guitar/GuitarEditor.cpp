@@ -380,8 +380,8 @@ void GuitarEditor::paintStatus(Graphics& g)
     a.removeFromTop(4);
     meter(a.removeFromTop(30), U("Energia bębniarza"), shownEnergy, accent);
 
-    static const String modes[] = { U("Czekam na bębniarza…"), U("Gram motyw (hook)"), U("Gram odpowiedź"),
-                                    U("Zostawiam miejsce – wchodzę z następną frazą"), U("Bębniarz gra przejście – czekam") };
+    static const String modes[] = { U("Czekam na bębniarza…"), U("Gram melodię zwrotki"), U("Gram melodię refrenu"),
+                                    U("Wchodzę z początkiem następnej frazy"), U("Bębniarz gra przejście – czekam") };
     g.setColour(palette::text);
     g.setFont(Font(FontOptions(12.5f)));
     g.drawFittedText(modes[jlimit(0, 4, st.mode.load())], a.removeFromTop(40), Justification::centredLeft, 2);
@@ -455,12 +455,13 @@ void GuitarEditor::paintOverChildren(Graphics& g)
     paintChords(g, chordRowA, "ZWROTKA", hh.progA, hh.key, sec == 0);
     paintChords(g, chordRowB, "REFREN", hh.progB, hh.key, sec == 1);
 
-    static const String sources[] = { U("melodia POP909"), U("kontrmelodia POP909"), U("idiom gitarowy"), "Lakh" };
+    static const String sources[] = { U("melodia"), U("kontrmelodia") };
     String ph;
     if (st.phrase.load() >= 0)
-        ph << U("Fraza #") << st.phrase.load() << U(" · ") << sources[jlimit(0, 3, st.phraseSource.load())];
+        ph << sources[jlimit(0, 1, st.phraseSource.load())] << U(" POP909 nr ") << st.phraseSong.load()
+           << U(" · takt ") << (st.phraseBar.load() + 1) << "/8 · pasuje " << roundToInt(st.phraseFit.load() * 100.0f) << " %";
     else
-        ph << U("Fraza: —");
+        ph << U("Melodia: —");
     g.setColour(palette::dim);
     g.setFont(Font(FontOptions(12.0f)));
     g.drawText(ph, phraseArea, Justification::centredRight);

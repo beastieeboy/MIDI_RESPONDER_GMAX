@@ -144,7 +144,7 @@ void Engine::process(const BlockInfo& info, const EngineParams& p, const DrumHit
             if (pbBar == bar && pb != usedPianoBar)
             {
                 usedPianoBar = pb;
-                if (pbSec != section || pbPos != chordPos % std::max(1, progLength(section ? harmony.progB : harmony.progA)))
+                if (pbSec != section || pbPos != chordPos % 240)
                 {
                     section = pbSec;
                     chordPos = pbPos;
@@ -224,6 +224,8 @@ void Engine::decideBar(int bar, const BlockInfo& info, const EngineParams& p)
             target = 0.75f * target + 0.25f * float(link.group(p.group).pianoEnergy.load()) / 1000.0f;
         if (sectionChanged)
             target = std::min(1.0f, target + 0.1f);
+        if (section == 1)
+            target = std::min(1.0f, target + 0.08f); // refren gra pełniej – utwór się rozwija
 
         const int li = chooseLick(target, f, p);
         buildLickPlan(li, p, spb, sectionChanged);
@@ -236,8 +238,7 @@ void Engine::decideBar(int bar, const BlockInfo& info, const EngineParams& p)
     {
         g.pianoRhythm.store(uint64_t(uint32_t(bar)) << 32 | planMask, std::memory_order_relaxed);
         g.pianoEnergy.store(uint32_t(drums.energy() * 1000.0f), std::memory_order_relaxed);
-        g.pianoBar.store(packBar(bar, section, chordPos % progLength(section ? harmony.progB : harmony.progA)),
-                         std::memory_order_release);
+        g.pianoBar.store(packBar(bar, section, chordPos), std::memory_order_release);
     }
     else
     {
@@ -260,13 +261,10 @@ void Engine::resolveHarmony(int bar, const BarFeatures& f, const EngineParams& p
     auto ownLogic = [&]
     {
         if (! continuous)
+            harmony.sectionAtStart(bar, section, sectionStart); // start / skok kursora
+        else if (harmony.switchesAt(bar, sectionStart, f.fill))
         {
-            section = 0;      // start / skok: zwrotka, akordy liczone od początku projektu
-            sectionStart = 0;
-        }
-        else if (f.fill && harmony.fillSwitchesSection)
-        {
-            section ^= 1;     // przejście na tomach = zmiana zwrotka <-> refren
+            section ^= 1;     // przejście na tomach albo koniec formy = zmiana zwrotka <-> refren
             sectionStart = bar;
         }
     };
@@ -298,7 +296,7 @@ void Engine::resolveHarmony(int bar, const BarFeatures& f, const EngineParams& p
             // Piano jeszcze nie zdecydowało: przewidujemy tą samą regułą (te same bębny).
             section = pbSec;
             sectionStart = bar - 1 - pbPos;
-            if (f.fill && harmony.fillSwitchesSection)
+            if (harmony.switchesAt(bar, sectionStart, f.fill))
             {
                 section ^= 1;
                 sectionStart = bar;
