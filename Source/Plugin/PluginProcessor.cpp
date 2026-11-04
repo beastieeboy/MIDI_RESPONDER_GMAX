@@ -85,6 +85,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout SekcjaProcessor::createLayou
         l.add(std::make_unique<AudioParameterChoice>(ParameterID { "progA", 1 }, "Progresja zwrotki", progressionNames(), 1));
         l.add(std::make_unique<AudioParameterChoice>(ParameterID { "progB", 1 }, "Progresja refrenu", progressionNames(), 0));
         l.add(std::make_unique<AudioParameterBool>(ParameterID { "fillSwitch", 1 }, U("Przejście zmienia sekcję"), true));
+        l.add(std::make_unique<AudioParameterChoice>(ParameterID { "form", 1 }, "Forma",
+            StringArray { U("Tylko przejścia"), U("Auto: co 8 taktów"), U("Auto: co 16 taktów") }, 1));
         l.add(std::make_unique<AudioParameterBool>(ParameterID { "giveWay", 1 }, U("Ustępuj basowi"), true));
         l.add(std::make_unique<AudioParameterInt>(ParameterID { "register", 1 }, "Rejestr", 52, 76, 64));
     }
@@ -118,6 +120,7 @@ sk::EngineParams SekcjaProcessor::currentParams() const
         p.harmony.progA = intParam(apvts, "progA");
         p.harmony.progB = intParam(apvts, "progB");
         p.harmony.fillSwitchesSection = intParam(apvts, "fillSwitch") != 0;
+        p.harmony.formBars = intParam(apvts, "form") * 8;
         p.harmony.valid = true;
         p.giveWayToBass = intParam(apvts, "giveWay") != 0;
         p.registerCenter = intParam(apvts, "register");

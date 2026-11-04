@@ -42,6 +42,8 @@ SekcjaEditor::SekcjaEditor(SekcjaProcessor& p)
         addCombo(keyBox, keyLabel, "key", "Tonacja", keyAtt);
         addCombo(progABox, progALabel, "progA", "Zwrotka", progAAtt);
         addCombo(progBBox, progBLabel, "progB", "Refren", progBAtt);
+        addCombo(formBox, formLabel, "form", "Forma", formAtt);
+        formBox.setTooltip(U("Bez przejść bębniarza (zapętlony pattern) zwrotka i refren zmieniają się same co 8 lub 16 taktów"));
         addAndMakeVisible(fillToggle);
         addAndMakeVisible(giveWayToggle);
         fillAtt = std::make_unique<ButtonAttachment>(proc.apvts, "fillSwitch", fillToggle);
@@ -161,7 +163,10 @@ void SekcjaEditor::resized()
         chordRowB = inner.removeFromTop(34);
         inner.removeFromTop(8);
         auto toggles = inner.removeFromTop(24);
-        fillToggle.setBounds(toggles.removeFromLeft(toggles.getWidth() / 2 + 20));
+        fillToggle.setBounds(toggles.removeFromLeft(200));
+        formLabel.setBounds(toggles.removeFromLeft(50));
+        formBox.setBounds(toggles.removeFromLeft(160));
+        toggles.removeFromLeft(12);
         giveWayToggle.setBounds(toggles);
     }
     else
